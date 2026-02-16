@@ -6,7 +6,7 @@
  *  A driver for the Aqara Climate Sensor W100 with temperature, humidity,
  *  3 buttons (plus/center/minus), and optional external sensor support.
  *
- *  Version: 1.2.0
+ *  Version: 1.2.1
  *
  *  Clusters:
  *    0x0000 - Basic
@@ -240,11 +240,20 @@ private List<Integer> getTimestampBytes() {
 
 /**
  * Write a PMTSD frame to attribute 0xFFF2 on cluster 0xFCC0
+ * Uses "he wattr" raw command because zigbee.writeAttribute() doesn't handle
+ * long octet strings (0x41) properly. Length byte must be prepended per ZCL spec.
  */
 private List<String> writeFFF2Frame(List<Integer> frameBytes) {
     def hexPayload = frameBytes.collect { String.format('%02X', it & 0xFF) }.join('')
-    logDebug "FFF2 frame: ${hexPayload}"
-    return zigbee.writeAttribute(0xFCC0, 0xFFF2, 0x41, hexPayload, [mfgCode: AQARA_MFG_CODE])
+    logDebug "FFF2 frame (${frameBytes.size()} bytes): ${hexPayload}"
+
+    // Build the length byte (octet string requires length prefix per ZCL spec)
+    def lengthByte = String.format('%02X', frameBytes.size())
+    def mfgHex = String.format('%04X', AQARA_MFG_CODE)
+
+    def cmd = "he wattr 0x${device.deviceNetworkId} 0x01 0xFCC0 0xFFF2 0x41 {${lengthByte}${hexPayload}} {${mfgHex}}"
+    logDebug "FFF2 cmd: ${cmd}"
+    return [cmd]
 }
 
 /**
@@ -644,14 +653,14 @@ private void parseF7TLVData(String hexData) {
                 sendEvent(name: "powerOutageCount", value: value)
                 break
             case 0x66:  // External temperature (if connected)
-                def extTemp = value / 100.0
+                def extTemp = formatDecimal(value / 100.0, 1)
                 logInfo "F7 External temperature: ${extTemp}°C"
-                sendEvent(name: "externalTemperature", value: formatDecimal(extTemp, 1), unit: "°C")
+                sendEvent(name: "externalTemperature", value: extTemp, unit: "°C")
                 break
             case 0x67:  // External humidity (if connected)
-                def extHum = value / 100.0
+                def extHum = formatDecimal(value / 100.0, 1)
                 logInfo "F7 External humidity: ${extHum}%"
-                sendEvent(name: "externalHumidity", value: formatDecimal(extHum, 1), unit: "%")
+                sendEvent(name: "externalHumidity", value: extHum, unit: "%")
                 break
             case 0x69:  // Battery percentage
                 logInfo "F7 Battery: ${value}%"
@@ -716,7 +725,6 @@ private String decodeString(String hex) {
 }
 
 private BigDecimal formatDecimal(Number value, int places) {
-    if (value == 0) return BigDecimal.ZERO
     return new BigDecimal(String.format("%.${places}f", value))
 }
 
