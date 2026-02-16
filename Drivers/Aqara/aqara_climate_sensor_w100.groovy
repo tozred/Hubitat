@@ -6,7 +6,7 @@
  *  A driver for the Aqara Climate Sensor W100 with temperature, humidity,
  *  3 buttons (plus/center/minus), and optional external sensor support.
  *
- *  Version: 1.1.0
+ *  Version: 1.2.0
  *
  *  Clusters:
  *    0x0000 - Basic
@@ -181,6 +181,71 @@ def refresh() {
 }
 
 // ==================== External Sensor Commands ====================
+// Uses the Aqara PMTSD frame protocol to write to attribute 0xFFF2
+// Reference: zigbee-herdsman-converters lumiExternalSensor implementation
+
+// Fictive sensor address used by zigbee2mqtt (required by protocol)
+@Field static final List<Integer> FICTIVE_SENSOR = [0x00, 0x15, 0x8D, 0x00, 0x01, 0x9D, 0x1B, 0x98]
+
+/**
+ * Build a PMTSD protocol header for Aqara FFF2 attribute writes
+ * Format: [0xAA, 0x71, length+3, 0x44, counter, integrity, action, 0x41, length]
+ */
+private List<Integer> buildLumiHeader(int counter, int paramsLength, int action) {
+    def header = [0xAA, 0x71, paramsLength + 3, 0x44, counter]
+    def integrity = 512 - header.sum()
+    return header + [integrity & 0xFF, action, 0x41, paramsLength]
+}
+
+/**
+ * Convert a float to big-endian IEEE 754 bytes
+ */
+private List<Integer> floatToBE(float value) {
+    int bits = Float.floatToIntBits(value)
+    return [
+        (bits >> 24) & 0xFF,
+        (bits >> 16) & 0xFF,
+        (bits >> 8) & 0xFF,
+        bits & 0xFF
+    ]
+}
+
+/**
+ * Get the device's IEEE address as a list of bytes
+ */
+private List<Integer> getDeviceIeeeBytes() {
+    def ieee = device.zigbeeId
+    if (ieee.startsWith("0x") || ieee.startsWith("0X")) {
+        ieee = ieee.substring(2)
+    }
+    def bytes = []
+    for (int i = 0; i < ieee.length(); i += 2) {
+        bytes << Integer.parseInt(ieee.substring(i, i + 2), 16)
+    }
+    return bytes
+}
+
+/**
+ * Get a 4-byte big-endian Unix timestamp
+ */
+private List<Integer> getTimestampBytes() {
+    long ts = (long)(now() / 1000)
+    return [
+        (int)((ts >> 24) & 0xFF),
+        (int)((ts >> 16) & 0xFF),
+        (int)((ts >> 8) & 0xFF),
+        (int)(ts & 0xFF)
+    ]
+}
+
+/**
+ * Write a PMTSD frame to attribute 0xFFF2 on cluster 0xFCC0
+ */
+private List<String> writeFFF2Frame(List<Integer> frameBytes) {
+    def hexPayload = frameBytes.collect { String.format('%02X', it & 0xFF) }.join('')
+    logDebug "FFF2 frame: ${hexPayload}"
+    return zigbee.writeAttribute(0xFCC0, 0xFFF2, 0x41, hexPayload, [mfgCode: AQARA_MFG_CODE])
+}
 
 /**
  * Set the sensor display mode
@@ -188,16 +253,61 @@ def refresh() {
  */
 def setSensorMode(String mode) {
     logInfo "Setting sensor mode to: ${mode}"
-
-    def modeValue = (mode == "external") ? 0x02 : 0x01
     sendEvent(name: "sensorMode", value: mode, descriptionText: "Sensor mode set to ${mode}")
 
-    return zigbee.writeAttribute(0xFCC0, 0x0172, 0x23, modeValue, [mfgCode: AQARA_MFG_CODE])
+    def cmds = []
+    def deviceBytes = getDeviceIeeeBytes()
+    def timestamp = getTimestampBytes()
+
+    if (mode == "external") {
+        // Register external temperature sensor (action 0x02)
+        def params1 = timestamp + [0x15] + deviceBytes + FICTIVE_SENSOR + [
+            0x00, 0x02, 0x00, 0x55, 0x15, 0x0A, 0x01, 0x00,
+            0x00, 0x01, 0x06, 0xE6, 0xB9, 0xBF, 0xE5, 0xBA,
+            0xA6, 0x00, 0x00, 0x00, 0x00, 0x00, 0x01, 0x02,
+            0x08, 0x65
+        ]
+        def frame1 = buildLumiHeader(0x12, params1.size(), 0x02) + params1
+        cmds += writeFFF2Frame(frame1)
+        cmds += "delay 500"
+
+        // Register external humidity sensor (action 0x02)
+        def params2 = timestamp + [0x14] + deviceBytes + FICTIVE_SENSOR + [
+            0x00, 0x01, 0x00, 0x55, 0x15, 0x0A, 0x01, 0x00,
+            0x00, 0x01, 0x06, 0xE6, 0xB8, 0xA9, 0xE5, 0xBA,
+            0xA6, 0x00, 0x00, 0x00, 0x00, 0x00, 0x01, 0x02,
+            0x07, 0x63
+        ]
+        def frame2 = buildLumiHeader(0x13, params2.size(), 0x02) + params2
+        cmds += writeFFF2Frame(frame2)
+    } else {
+        // Unregister external sensors (action 0x04)
+        def params1 = timestamp + [0x15] + deviceBytes + [
+            0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+            0x00, 0x00, 0x00, 0x00
+        ]
+        def frame1 = buildLumiHeader(0x12, params1.size(), 0x04) + params1
+        cmds += writeFFF2Frame(frame1)
+        cmds += "delay 500"
+
+        def params2 = timestamp + [0x14] + deviceBytes + [
+            0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+            0x00, 0x00, 0x00, 0x00
+        ]
+        def frame2 = buildLumiHeader(0x13, params2.size(), 0x04) + params2
+        cmds += writeFFF2Frame(frame2)
+    }
+
+    cmds += "delay 500"
+    // Read back sensor mode to confirm
+    cmds += zigbee.readAttribute(0xFCC0, 0x0172, [mfgCode: AQARA_MFG_CODE])
+
+    return cmds
 }
 
 /**
  * Set external temperature to display on W100
- * Use this with Rule Machine to push temperature from another device (like your main thermostat)
+ * Must call setSensorMode("external") first
  * @param temperature Temperature in degrees Celsius (-100 to 100)
  */
 def setExternalTemperature(BigDecimal temperature) {
@@ -206,31 +316,27 @@ def setExternalTemperature(BigDecimal temperature) {
         return
     }
 
-    // Clamp to valid range
     if (temperature < -100) temperature = -100
     if (temperature > 100) temperature = 100
 
     logInfo "Setting external temperature to: ${temperature}°C"
     sendEvent(name: "externalTemperature", value: temperature, unit: "°C", descriptionText: "External temperature set to ${temperature}°C")
 
-    // Convert to centidegrees (x100) as signed 16-bit integer
-    def centidegrees = (temperature * 100).toInteger()
+    // Temperature encoded as IEEE 754 float, value * 100, big-endian
+    def floatBytes = floatToBE((float) (temperature * 100).toInteger())
 
-    // Build the Lumi/Aqara frame for FFF2 attribute
-    // Format: Header (05 01) + Tag (66) + Type (29 = Int16) + Value (little-endian)
-    def tempLow = centidegrees & 0xFF
-    def tempHigh = (centidegrees >> 8) & 0xFF
-    def payload = [0x05, 0x01, 0x66, 0x29, tempLow, tempHigh]
-    def hexPayload = payload.collect { String.format('%02X', it & 0xFF) }.join('')
+    // params: fictiveSensor + 00 01 00 55 + float32BE(temp*100)
+    def params = FICTIVE_SENSOR + [0x00, 0x01, 0x00, 0x55] + floatBytes
+    def frame = buildLumiHeader(0x12, params.size(), 0x05) + params
 
-    logDebug "External temp payload: ${hexPayload}"
+    logDebug "External temp frame: ${frame.collect { String.format('%02X', it & 0xFF) }.join('')}"
 
-    return zigbee.writeAttribute(0xFCC0, 0xFFF2, 0x41, hexPayload, [mfgCode: AQARA_MFG_CODE])
+    return writeFFF2Frame(frame)
 }
 
 /**
  * Set external humidity to display on W100
- * Use this with Rule Machine to push humidity from another device
+ * Must call setSensorMode("external") first
  * @param humidity Humidity percentage (0 to 100)
  */
 def setExternalHumidity(BigDecimal humidity) {
@@ -239,26 +345,22 @@ def setExternalHumidity(BigDecimal humidity) {
         return
     }
 
-    // Clamp to valid range
     if (humidity < 0) humidity = 0
     if (humidity > 100) humidity = 100
 
     logInfo "Setting external humidity to: ${humidity}%"
     sendEvent(name: "externalHumidity", value: humidity, unit: "%", descriptionText: "External humidity set to ${humidity}%")
 
-    // Convert to centi-percent (x100) as unsigned 16-bit integer
-    def centiPercent = (humidity * 100).toInteger()
+    // Humidity encoded as IEEE 754 float, value * 100, big-endian
+    def floatBytes = floatToBE((float) (humidity * 100).toInteger())
 
-    // Build the Lumi/Aqara frame for FFF2 attribute
-    // Format: Header (05 01) + Tag (67) + Type (21 = Uint16) + Value (little-endian)
-    def humLow = centiPercent & 0xFF
-    def humHigh = (centiPercent >> 8) & 0xFF
-    def payload = [0x05, 0x01, 0x67, 0x21, humLow, humHigh]
-    def hexPayload = payload.collect { String.format('%02X', it & 0xFF) }.join('')
+    // params: fictiveSensor + 00 02 00 55 + float32BE(hum*100)
+    def params = FICTIVE_SENSOR + [0x00, 0x02, 0x00, 0x55] + floatBytes
+    def frame = buildLumiHeader(0x12, params.size(), 0x05) + params
 
-    logDebug "External humidity payload: ${hexPayload}"
+    logDebug "External humidity frame: ${frame.collect { String.format('%02X', it & 0xFF) }.join('')}"
 
-    return zigbee.writeAttribute(0xFCC0, 0xFFF2, 0x41, hexPayload, [mfgCode: AQARA_MFG_CODE])
+    return writeFFF2Frame(frame)
 }
 
 // ==================== Parse ====================
@@ -452,6 +554,16 @@ private void parseAqaraCluster(String attrId, String value, Map descMap) {
             // Power outage count or similar
             def count = zigbee.convertHexToInt(value)
             logDebug "FCC0 attr 0x20: ${count}"
+            break
+        case "0172":
+            // Sensor mode: 0/1 = internal, 2/3 = external
+            def modeVal = zigbee.convertHexToInt(value)
+            def sensorMode = (modeVal >= 2) ? "external" : "internal"
+            logInfo "Sensor mode confirmed: ${sensorMode} (raw: ${modeVal})"
+            sendEvent(name: "sensorMode", value: sensorMode, descriptionText: "Sensor mode is ${sensorMode}")
+            break
+        case "FFF2":
+            logDebug "FCC0 attr 0xFFF2 response: ${value?.take(60)}"
             break
         default:
             logDebug "Unhandled FCC0 attribute 0x${attrId}: ${value?.take(40)}"
