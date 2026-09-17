@@ -6,7 +6,7 @@
  *  A driver for the Aqara Climate Sensor W100 with temperature, humidity,
  *  3 buttons (plus/center/minus), and optional external sensor support.
  *
- *  Version: 1.2.1
+ *  Version: 1.2.2
  *
  *  Clusters:
  *    0x0000 - Basic
@@ -54,6 +54,7 @@ metadata {
         attribute "sensorMode", "string"
 
         // Commands for external sensor display
+        command "readFirmwareInfo"
         command "setExternalTemperature", [[name: "temperature", type: "NUMBER", description: "Temperature in °C (-100 to 100)"]]
         command "setExternalHumidity", [[name: "humidity", type: "NUMBER", description: "Humidity in % (0 to 100)"]]
         command "setSensorMode", [[name: "mode", type: "ENUM", constraints: ["internal", "external"], description: "Display internal or external sensor"]]
@@ -177,6 +178,19 @@ def refresh() {
     // Aqara F7 TLV data
     cmds += zigbee.readAttribute(0xFCC0, 0x00F7, [mfgCode: AQARA_MFG_CODE])
 
+    return cmds
+}
+
+// Fills the device Data section (manufacturer, model, application, softwareBuild)
+// so firmware can be compared against OTA indexes. Battery device: press a button on the
+// sensor right before running this so it is awake to answer.
+def readFirmwareInfo() {
+    logInfo "Reading firmware info"
+    def cmds = []
+    [0x0001, 0x0004, 0x0005, 0x4000].each { attr ->
+        cmds += zigbee.readAttribute(0x0000, attr)
+        cmds += "delay 200"
+    }
     return cmds
 }
 
@@ -467,6 +481,17 @@ private void parseBasicCluster(String attrId, String value, Map descMap) {
     def encoding = descMap.encoding
 
     switch (attrId) {
+        case "0001":  // Application version
+            updateDataValue("application", value)
+            logInfo "Application version: 0x${value} (${Integer.parseInt(value, 16)})"
+            break
+        case "4000":  // Software build id
+            def build = (encoding == "42") ? value : decodeString(value)
+            if (build) {
+                logInfo "Software build: ${build}"
+                updateDataValue("softwareBuild", build)
+            }
+            break
         case "0004":  // Manufacturer
             def mfg = (encoding == "42") ? value : decodeString(value)
             if (mfg) {

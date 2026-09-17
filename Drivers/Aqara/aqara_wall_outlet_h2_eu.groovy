@@ -19,9 +19,10 @@
  *  - Power outage counter
  *  - Health check monitoring
  *
- *  Version: 1.1.7
+ *  Version: 1.1.8
  *
  *  Changelog:
+ *  1.1.8 - Added readFirmwareInfo: fills manufacturer/model/application/softwareBuild/firmwareMT data
  *  1.1.7 - Parse-path diagnostics now respect the debug/description logging preferences
  *  1.1.6 - Fixed current value (divide by 1000 - value is in milliamps)
  *        - Ignore bad temperature from cluster 0402 (F7 is primary source)
@@ -55,7 +56,7 @@ import groovy.transform.Field
 
 // ==================== Constants ====================
 
-@Field static final String DRIVER_VERSION = "1.1.7"
+@Field static final String DRIVER_VERSION = "1.1.8"
 
 // Default endpoint for switch control - This device uses endpoint 01 for the outlet
 @Field static final String DEFAULT_SWITCH_ENDPOINT = "01"
@@ -71,6 +72,10 @@ import groovy.transform.Field
 
 // Lumi manufacturer code
 @Field static final int LUMI_MFG_CODE = 0x115F
+
+// OTA image identity of lumi.plug.aeu001 (manufacturer code, image type)
+@Field static final String OTA_MANUFACTURER = "115F"
+@Field static final String OTA_IMAGE_TYPE = "9B0E"
 
 // On/Off Cluster Attributes
 @Field static final int ATTR_ONOFF = 0x0000
@@ -142,6 +147,7 @@ metadata {
         attribute "driverVersion", "string"
 
         // Commands
+        command "readFirmwareInfo"
         command "setPowerOnBehavior", [[name: "behavior*", type: "ENUM", constraints: ["off", "on", "previous", "inverted"],
                                         description: "off=always off, on=always on, previous=restore last state, inverted=opposite of last state"]]
         command "setOverloadProtection", [[name: "maxPower*", type: "NUMBER", description: "Max power before auto-off (100-3840W)"]]
@@ -443,6 +449,20 @@ def refresh() {
     return cmds
 }
 
+// Populates the device Data section (manufacturer, model, application, softwareBuild,
+// firmwareMT) the way system drivers do, so firmware can be compared against OTA indexes
+def readFirmwareInfo() {
+    logInfo "Reading firmware info"
+    String dni = device.deviceNetworkId
+    String ep = getSwitchEndpoint()
+    def cmds = []
+    ["0001", "0004", "0005", "4000"].each { attr ->
+        cmds += "he rattr 0x${dni} 0x${ep} 0x0000 0x${attr} {}"
+        cmds += "delay 200"
+    }
+    return cmds
+}
+
 def ping() {
     return refresh()
 }
@@ -678,6 +698,10 @@ private List handleReadAttr(Map descMap) {
     logDebug "Handling: cluster=${cluster}, attr=${attrId}, value=${value}"
 
     switch(cluster) {
+        case "0000":  // Basic
+            handleBasicCluster(attrId, value, descMap.encoding)
+            break
+
         case "0006":  // On/Off
             events += handleOnOffCluster(attrId, value)
             break
@@ -1168,6 +1192,41 @@ private List parseAqaraF7Struct(String hexString) {
     }
 
     return events
+}
+
+private void handleBasicCluster(String attrId, String value, String encoding) {
+    // Hubitat already decodes character strings (encoding 42)
+    String text = (encoding == "42" || value =~ /[g-zG-Z._ ]/) ? value : hexToAscii(value)
+    switch(attrId) {
+        case "0001":
+            // On this outlet the OTA file version is the application version; manufacturer
+            // code and image type are fixed, so firmwareMT can be derived without the OTA cluster
+            String fileVersion = value.toUpperCase().padLeft(8, "0")
+            updateDataValue("application", value)
+            updateDataValue("softwareBuild", fileVersion)
+            updateDataValue("firmwareMT", "${OTA_MANUFACTURER}-${OTA_IMAGE_TYPE}-${fileVersion}")
+            logInfo "Application version: 0x${value} (${Integer.parseInt(value, 16)})"
+            break
+        case "0004":
+            updateDataValue("manufacturer", text)
+            break
+        case "0005":
+            updateDataValue("model", text)
+            break
+        case "4000":
+            updateDataValue("softwareBuild", text)
+            logInfo "Software build: ${text}"
+            break
+    }
+}
+
+private String hexToAscii(String hex) {
+    if (!hex || hex.length() % 2) return hex
+    try {
+        return hex.split("(?<=\\G..)").collect { (char) Integer.parseInt(it, 16) }.join().trim()
+    } catch (e) {
+        return hex
+    }
 }
 
 private List handleCatchall(Map descMap) {
