@@ -32,7 +32,7 @@ import groovy.transform.Field
 
 // ==================== Constants ====================
 
-@Field static final String DRIVER_VERSION = "2.2.1"
+@Field static final String DRIVER_VERSION = "2.2.2"
 // Manufacturer code - can be string "0x1286" or integer 0x1286
 // Using string format for broader compatibility
 @Field static final String SONOFF_MFG_CODE = "0x1286"
@@ -323,10 +323,19 @@ private void schedulePoll() {
     }
 }
 
+// Older driver versions stored this preference in hours ("1", "2", "4");
+// normalise to minutes so a stale value can't produce a 2-minute offline threshold
+private int healthIntervalMinutes() {
+    int minutes = (healthCheckInterval ?: "120") as int
+    if (minutes > 0 && minutes < 60) minutes = minutes * 60
+    return minutes
+}
+
 private void scheduleHealthCheck() {
-    def interval = healthCheckInterval ?: "120"
-    if (interval != "0") {
-        def minutes = Integer.parseInt(interval)
+    unschedule("healthCheck")
+    int minutes = healthIntervalMinutes()
+    def interval = minutes as String
+    if (minutes != 0) {
         // Use runEvery methods instead of cron for simplicity and reliability
         switch(minutes) {
             case 60: runEvery1Hour(healthCheck); break
@@ -346,7 +355,8 @@ def pollTemperature() {
 
 def healthCheck() {
     def lastActivity = state.lastSuccessfulComm ?: 0
-    def healthInterval = (healthCheckInterval ?: "120") as int
+    def healthInterval = healthIntervalMinutes()
+    if (healthInterval == 0) return
     def threshold = healthInterval * 60 * 1000 * 2  // 2x the health check interval
 
     if (now() - lastActivity > threshold) {

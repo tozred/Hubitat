@@ -19,9 +19,10 @@
  *  - Power outage counter
  *  - Health check monitoring
  *
- *  Version: 1.1.6
+ *  Version: 1.1.7
  *
  *  Changelog:
+ *  1.1.7 - Parse-path diagnostics now respect the debug/description logging preferences
  *  1.1.6 - Fixed current value (divide by 1000 - value is in milliamps)
  *        - Ignore bad temperature from cluster 0402 (F7 is primary source)
  *        - Ignore bad voltage from attribute 0502 (F7 is primary source)
@@ -54,7 +55,7 @@ import groovy.transform.Field
 
 // ==================== Constants ====================
 
-@Field static final String DRIVER_VERSION = "1.1.6"
+@Field static final String DRIVER_VERSION = "1.1.7"
 
 // Default endpoint for switch control - This device uses endpoint 01 for the outlet
 @Field static final String DEFAULT_SWITCH_ENDPOINT = "01"
@@ -592,8 +593,7 @@ def setChargingLimit(power) {
 // ==================== Parse ====================
 
 def parse(String description) {
-    // Always log to info for debugging - can see even if debug is off
-    log.info "${device.displayName}: Parse received: ${description?.take(100)}..."
+    logDebug "Parse received: ${description?.take(100)}..."
 
     updateLastActivity()
 
@@ -627,7 +627,7 @@ def parse(String description) {
         if (descMap) {
             // Normalize cluster field - catchall uses clusterId, read attr uses cluster
             String cluster = descMap.cluster ?: descMap.clusterId
-            log.info "${device.displayName}: Parsed - cluster=${cluster}, attr=${descMap.attrId}, enc=${descMap.encoding}, cmd=${descMap.command}"
+            logDebug "Parsed - cluster=${cluster}, attr=${descMap.attrId}, enc=${descMap.encoding}, cmd=${descMap.command}"
 
             if (cluster) {
                 // Normalize the cluster field for handlers
@@ -661,7 +661,7 @@ def parse(String description) {
     }
 
     if (events) {
-        log.info "${device.displayName}: Generated ${events.size()} events"
+        logDebug "Generated ${events.size()} events"
     }
 
     return events
@@ -921,7 +921,7 @@ private List parseAqaraF7Struct(String hexString) {
         return events
     }
 
-    log.info "${device.displayName}: Parsing Aqara F7 struct (${hexString.length()} chars)"
+    logDebug "Parsing Aqara F7 struct (${hexString.length()} chars)"
     logDebug "F7 data: ${hexString}"
 
     try {
@@ -1047,7 +1047,7 @@ private List parseAqaraF7Struct(String hexString) {
 
                 case 0x03:  // Device temperature (°C) - comes as Int8
                     if (value != null) {
-                        log.info "TEMP RAW: value=${value}"
+                        logDebug "TEMP RAW: value=${value}"
                         int tempInt = value as int
                         BigDecimal temp = new BigDecimal(tempInt)
                         String unit = "°C"
@@ -1099,7 +1099,7 @@ private List parseAqaraF7Struct(String hexString) {
 
                 case 0x96:  // Voltage - raw value in decivolts (e.g., 2321 = 232.1V)
                     if (value != null) {
-                        log.info "VOLTAGE RAW: value=${value}, instanceof Float=${value instanceof Float}"
+                        logDebug "VOLTAGE RAW: value=${value}, instanceof Float=${value instanceof Float}"
                         // Value should be ~2300 decivolts for 230V
                         BigDecimal rawVoltage
                         if (value instanceof Float) {
@@ -1109,7 +1109,7 @@ private List parseAqaraF7Struct(String hexString) {
                         } else {
                             rawVoltage = new BigDecimal(value.toString())
                         }
-                        log.info "VOLTAGE CLEANED: rawVoltage=${rawVoltage}"
+                        logDebug "VOLTAGE CLEANED: rawVoltage=${rawVoltage}"
                         // Divide by 10 to get actual volts
                         BigDecimal voltage = rawVoltage.divide(new BigDecimal("10"), 1, BigDecimal.ROUND_HALF_UP)
                         events << createEvent(name: "voltage", value: voltage, unit: "V")
@@ -1119,7 +1119,7 @@ private List parseAqaraF7Struct(String hexString) {
 
                 case 0x97:  // Current - value is in milliamps, divide by 1000 to get amps
                     if (value != null) {
-                        log.info "CURRENT RAW: value=${value}, instanceof Float=${value instanceof Float}"
+                        logDebug "CURRENT RAW: value=${value}, instanceof Float=${value instanceof Float}"
                         BigDecimal current
                         if (value instanceof Float) {
                             // Float value is in milliamps - divide by 1000
@@ -1129,7 +1129,7 @@ private List parseAqaraF7Struct(String hexString) {
                         } else {
                             current = new BigDecimal(value.toString()).divide(new BigDecimal("1000"), 6, BigDecimal.ROUND_HALF_UP)
                         }
-                        log.info "CURRENT CLEANED: current=${current}"
+                        logDebug "CURRENT CLEANED: current=${current}"
                         current = current.setScale(3, BigDecimal.ROUND_HALF_UP)
                         events << createEvent(name: "amperage", value: current, unit: "A")
                         logInfo "Current: ${current} A"
@@ -1138,7 +1138,7 @@ private List parseAqaraF7Struct(String hexString) {
 
                 case 0x98:  // Power in watts
                     if (value != null) {
-                        log.info "POWER RAW: value=${value}, instanceof Float=${value instanceof Float}"
+                        logDebug "POWER RAW: value=${value}, instanceof Float=${value instanceof Float}"
                         BigDecimal power
                         if (value instanceof Float) {
                             power = new BigDecimal(String.format("%.2f", value))
@@ -1147,7 +1147,7 @@ private List parseAqaraF7Struct(String hexString) {
                         } else {
                             power = new BigDecimal(value.toString())
                         }
-                        log.info "POWER CLEANED: power=${power}"
+                        logDebug "POWER CLEANED: power=${power}"
                         power = power.setScale(1, BigDecimal.ROUND_HALF_UP)
                         events << createEvent(name: "power", value: power, unit: "W")
                         logInfo "Power: ${power} W"
@@ -1180,13 +1180,13 @@ private List handleCatchall(Map descMap) {
 
     // Handle On/Off cluster responses
     if (clusterId == "0006") {
-        log.info "${device.displayName}: On/Off catchall - cmd=${command}, data=${descMap.data}"
+        logDebug "On/Off catchall - cmd=${command}, data=${descMap.data}"
 
         if (command == "0B" && descMap.data?.size() > 0) {
             // Default response - data[0] is the command that was acknowledged
             def cmd = descMap.data[0]
             def switchValue = (cmd == "01") ? "on" : "off"
-            log.info "${device.displayName}: Switch command ${cmd} acknowledged -> ${switchValue}"
+            logInfo "Switch command ${cmd} acknowledged -> ${switchValue}"
             events << createEvent(name: "switch", value: switchValue, descriptionText: "${device.displayName} is ${switchValue}")
         } else if (command == "01" && descMap.data?.size() >= 5) {
             // Read attribute response
@@ -1195,7 +1195,7 @@ private List handleCatchall(Map descMap) {
                 if (descMap.data[2] == "00") {
                     // Success status - data[4] is the value
                     def switchValue = (descMap.data[4] == "01") ? "on" : "off"
-                    log.info "${device.displayName}: Switch read response -> ${switchValue}"
+                    logInfo "Switch read response -> ${switchValue}"
                     events << createEvent(name: "switch", value: switchValue, descriptionText: "${device.displayName} is ${switchValue}")
                 }
             } catch (e) {
@@ -1206,7 +1206,7 @@ private List handleCatchall(Map descMap) {
             // Data format: [attrIdLo, attrIdHi, dataType, value]
             try {
                 def switchValue = (descMap.data[3] == "01") ? "on" : "off"
-                log.info "${device.displayName}: Switch report -> ${switchValue}"
+                logInfo "Switch report -> ${switchValue}"
                 events << createEvent(name: "switch", value: switchValue, descriptionText: "${device.displayName} is ${switchValue}")
             } catch (e) {
                 logDebug "Error parsing on/off report: ${e.message}"
