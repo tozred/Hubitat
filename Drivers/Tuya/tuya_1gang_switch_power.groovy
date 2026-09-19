@@ -95,6 +95,7 @@ metadata {
         attribute "driverVersion", "string"
 
         // Commands
+        command "logsOff"   // switch debug logging off now (also runs automatically 30 min after Save)
         command "setPowerOnBehavior", [[name: "behavior*", type: "ENUM", constraints: ["off", "on", "restore"],
                                         description: "off=always off, on=always on, restore=previous state"]]
         command "countdown", [[name: "seconds*", type: "NUMBER", description: "Auto-off timer (0-43200 seconds, 0=disable)"]]

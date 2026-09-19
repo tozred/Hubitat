@@ -1,0 +1,356 @@
+{
+ "localization": "English",
+ "roundedCorners": 16,
+ "dateFormat": "DD/MM/YYYY",
+ "hideLabels": false,
+ "customColors": [
+  {
+   "template": "switches",
+   "bgColor": "",
+   "iconColor": "#ffc857",
+   "state": "on",
+   "customIcon": "he-bulb_on"
+  },
+  {
+   "template": "switches",
+   "bgColor": "",
+   "iconColor": "",
+   "state": "off",
+   "customIcon": "he-bulb_off"
+  },
+  {
+   "template": "valve",
+   "bgColor": "",
+   "iconColor": "#4ea8ff",
+   "state": "open",
+   "customIcon": ""
+  }
+ ],
+ "colWidth": "",
+ "cloudRefresh": 5,
+ "hsmPin": "",
+ "hide3dot": true,
+ "clockMode": true,
+ "gridGap": 10,
+ "goBack": true,
+ "tiles": [
+  {
+   "id": 1,
+   "template": "thermostat",
+   "row": 1,
+   "col": 1,
+   "rowSpan": 2,
+   "colSpan": 2,
+   "device": "95"
+  },
+  {
+   "id": 2,
+   "template": "temperature",
+   "row": 1,
+   "col": 3,
+   "rowSpan": 1,
+   "colSpan": 1,
+   "device": "30"
+  },
+  {
+   "id": 3,
+   "template": "temperature",
+   "row": 1,
+   "col": 4,
+   "rowSpan": 1,
+   "colSpan": 1,
+   "device": "27"
+  },
+  {
+   "id": 4,
+   "template": "temperature",
+   "row": 1,
+   "col": 5,
+   "rowSpan": 1,
+   "colSpan": 1,
+   "device": "28"
+  },
+  {
+   "id": 5,
+   "template": "temperature",
+   "row": 2,
+   "col": 3,
+   "rowSpan": 1,
+   "colSpan": 1,
+   "device": "21"
+  },
+  {
+   "id": 6,
+   "template": "humidity",
+   "row": 2,
+   "col": 4,
+   "rowSpan": 1,
+   "colSpan": 1,
+   "device": "28"
+  },
+  {
+   "id": 7,
+   "template": "mode",
+   "row": 2,
+   "col": 5,
+   "rowSpan": 1,
+   "colSpan": 1
+  },
+  {
+   "id": 8,
+   "template": "switch",
+   "row": 3,
+   "col": 1,
+   "rowSpan": 1,
+   "colSpan": 1,
+   "device": "61"
+  },
+  {
+   "id": 9,
+   "template": "dimmer",
+   "row": 3,
+   "col": 2,
+   "rowSpan": 1,
+   "colSpan": 1,
+   "device": "63"
+  },
+  {
+   "id": 10,
+   "template": "switch",
+   "row": 3,
+   "col": 3,
+   "rowSpan": 1,
+   "colSpan": 1,
+   "device": "92"
+  },
+  {
+   "id": 11,
+   "template": "switch",
+   "row": 3,
+   "col": 4,
+   "rowSpan": 1,
+   "colSpan": 1,
+   "device": "93"
+  },
+  {
+   "id": 12,
+   "template": "switch",
+   "row": 3,
+   "col": 5,
+   "rowSpan": 1,
+   "colSpan": 1,
+   "device": "58"
+  },
+  {
+   "id": 13,
+   "template": "switch",
+   "row": 4,
+   "col": 1,
+   "rowSpan": 1,
+   "colSpan": 1,
+   "device": "60"
+  },
+  {
+   "id": 14,
+   "template": "switch",
+   "row": 4,
+   "col": 2,
+   "rowSpan": 1,
+   "colSpan": 1,
+   "device": "49"
+  },
+  {
+   "id": 15,
+   "template": "switch",
+   "row": 4,
+   "col": 3,
+   "rowSpan": 1,
+   "colSpan": 1,
+   "device": "2"
+  },
+  {
+   "id": 16,
+   "template": "switch",
+   "row": 4,
+   "col": 4,
+   "rowSpan": 1,
+   "colSpan": 1,
+   "device": "35"
+  },
+  {
+   "id": 17,
+   "template": "switch",
+   "row": 4,
+   "col": 5,
+   "rowSpan": 1,
+   "colSpan": 1,
+   "device": "70"
+  },
+  {
+   "id": 18,
+   "template": "shades",
+   "row": 5,
+   "col": 1,
+   "rowSpan": 1,
+   "colSpan": 1,
+   "device": "43"
+  },
+  {
+   "id": 19,
+   "template": "switch",
+   "row": 5,
+   "col": 2,
+   "rowSpan": 1,
+   "colSpan": 1,
+   "device": "101"
+  },
+  {
+   "id": 20,
+   "template": "outlet",
+   "row": 5,
+   "col": 3,
+   "rowSpan": 1,
+   "colSpan": 1,
+   "device": "104"
+  },
+  {
+   "id": 21,
+   "template": "power",
+   "row": 5,
+   "col": 4,
+   "rowSpan": 1,
+   "colSpan": 1,
+   "device": "104"
+  },
+  {
+   "id": 22,
+   "template": "power",
+   "row": 5,
+   "col": 5,
+   "rowSpan": 1,
+   "colSpan": 1,
+   "device": "2"
+  },
+  {
+   "id": 23,
+   "template": "attribute",
+   "row": 6,
+   "col": 1,
+   "rowSpan": 1,
+   "colSpan": 1,
+   "device": "34",
+   "templateExtra": "lock"
+  },
+  {
+   "id": 24,
+   "template": "contact",
+   "row": 6,
+   "col": 2,
+   "rowSpan": 1,
+   "colSpan": 1,
+   "device": "34"
+  },
+  {
+   "id": 25,
+   "template": "window",
+   "row": 6,
+   "col": 3,
+   "rowSpan": 1,
+   "colSpan": 1,
+   "device": "66"
+  },
+  {
+   "id": 26,
+   "template": "window",
+   "row": 6,
+   "col": 4,
+   "rowSpan": 1,
+   "colSpan": 1,
+   "device": "50"
+  },
+  {
+   "id": 27,
+   "template": "water",
+   "row": 6,
+   "col": 5,
+   "rowSpan": 1,
+   "colSpan": 1,
+   "device": "65"
+  },
+  {
+   "id": 28,
+   "template": "attribute",
+   "row": 7,
+   "col": 1,
+   "rowSpan": 1,
+   "colSpan": 1,
+   "device": "21",
+   "templateExtra": "thermostatOperatingState"
+  },
+  {
+   "id": 29,
+   "template": "attribute",
+   "row": 7,
+   "col": 2,
+   "rowSpan": 1,
+   "colSpan": 1,
+   "device": "23",
+   "templateExtra": "thermostatOperatingState"
+  },
+  {
+   "id": 30,
+   "template": "attribute",
+   "row": 7,
+   "col": 3,
+   "rowSpan": 1,
+   "colSpan": 1,
+   "device": "24",
+   "templateExtra": "thermostatOperatingState"
+  },
+  {
+   "id": 31,
+   "template": "attribute",
+   "row": 7,
+   "col": 4,
+   "rowSpan": 1,
+   "colSpan": 1,
+   "device": "96",
+   "templateExtra": "thermostatOperatingState"
+  },
+  {
+   "id": 32,
+   "template": "attribute",
+   "row": 7,
+   "col": 5,
+   "rowSpan": 1,
+   "colSpan": 1,
+   "device": "98",
+   "templateExtra": "thermostatOperatingState"
+  },
+  {
+   "id": 33,
+   "template": "battery",
+   "row": 8,
+   "col": 1,
+   "rowSpan": 1,
+   "colSpan": 1,
+   "device": "34"
+  }
+ ],
+ "bgColor": "#0d1014",
+ "lanRefresh": 2,
+ "modesPin": "",
+ "iconSize": "34",
+ "cols": 5,
+ "rowHeight": 118,
+ "hideEvents": false,
+ "noColors": false,
+ "tempScale": "C",
+ "readOnly": null,
+ "rows": 8,
+ "hideIconText": false,
+ "hideTextShadow": true,
+ "name": "Home",
+ "fontSize": 12,
+ "customCSS": "/* Home dashboard - generated 2026-09-19. Desktop: 5 columns. Phone: 2 columns (auto flow). */\nbody,#app{background:#0d1014!important}\n#grid-wrapper{grid-auto-rows:118px!important;grid-template-rows:none!important;padding:6px 8px 24px!important}\n.tile{background:#161b22!important;border:1px solid #242c37;border-radius:16px!important;box-shadow:none!important;color:#e8edf3!important;overflow:hidden}\n.tile .tile-title{font:600 12px/1.2 -apple-system,\"SF Pro Text\",\"Segoe UI\",sans-serif!important;letter-spacing:.02em;color:#9aa7b5!important;padding:10px 12px 0!important;text-align:left!important;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;visibility:hidden;position:relative}\n.tile .tile-title:after{visibility:visible;position:absolute;left:12px;top:10px;right:12px;overflow:hidden;text-overflow:ellipsis}\n.tile .tile-primary{font:600 26px/1.1 -apple-system,\"SF Pro Display\",\"Segoe UI\",sans-serif!important;color:#f2f5f8!important}\n.tile:not(.thermostat) .tile-secondary{display:none!important}\n.tile .tile-edit,.tile .tile-menu{display:none!important}\n.tile .material-icons,.tile i{color:#9aa7b5}\n.tile.switch:has(.tile-primary.on),.tile.dimmer:has(.tile-primary.on),.tile.outlet:has(.tile-primary.on){background:#3a2f12!important;border-color:#ffc857!important}\n.tile .tile-primary.on i{color:#ffc857!important}\n.tile.window:has(.tile-primary.open),.tile.contact:has(.tile-primary.open){background:#3d1a1a!important;border-color:#ff6b6b!important}\n.tile.water:has(.tile-primary.wet){background:#3d1a1a!important;border-color:#ff6b6b!important}\n.tile.shades:has(.tile-primary.open){background:#2a2440!important;border-color:#c9b8ff!important}\n.header{background:#0d1014!important;color:#9aa7b5!important}\n\n#tile-1 .tile-title:after{content:\"Heating\"}\n#tile-1{border-left:3px solid #5fd0e0!important}\n#tile-2 .tile-title:after{content:\"Living room\"}\n#tile-2{border-left:3px solid #5fd0e0!important}\n#tile-3 .tile-title:after{content:\"Bedroom\"}\n#tile-3{border-left:3px solid #5fd0e0!important}\n#tile-4 .tile-title:after{content:\"Bathroom\"}\n#tile-4{border-left:3px solid #5fd0e0!important}\n#tile-5 .tile-title:after{content:\"Kitchen\"}\n#tile-5{border-left:3px solid #5fd0e0!important}\n#tile-6 .tile-title:after{content:\"Bathroom humidity\"}\n#tile-6{border-left:3px solid #5fd0e0!important}\n#tile-7 .tile-title:after{content:\"Mode\"}\n#tile-7{border-left:3px solid #5fd0e0!important}\n#tile-8 .tile-title:after{content:\"Sofa lights\"}\n#tile-8{border-left:3px solid #ffc857!important}\n#tile-9 .tile-title:after{content:\"Bedroom\"}\n#tile-9{border-left:3px solid #ffc857!important}\n#tile-10 .tile-title:after{content:\"Kitchen\"}\n#tile-10{border-left:3px solid #ffc857!important}\n#tile-11 .tile-title:after{content:\"Bathroom\"}\n#tile-11{border-left:3px solid #ffc857!important}\n#tile-12 .tile-title:after{content:\"Entrance\"}\n#tile-12{border-left:3px solid #ffc857!important}\n#tile-13 .tile-title:after{content:\"Floor light\"}\n#tile-13{border-left:3px solid #ffc857!important}\n#tile-14 .tile-title:after{content:\"Wintergarden\"}\n#tile-14{border-left:3px solid #ffc857!important}\n#tile-15 .tile-title:after{content:\"Sofa lamp\"}\n#tile-15{border-left:3px solid #ffc857!important}\n#tile-16 .tile-title:after{content:\"Side light\"}\n#tile-16{border-left:3px solid #ffc857!important}\n#tile-17 .tile-title:after{content:\"Bedroom fan\"}\n#tile-17{border-left:3px solid #ffc857!important}\n#tile-18 .tile-title:after{content:\"Cinema screen\"}\n#tile-18{border-left:3px solid #c9b8ff!important}\n#tile-19 .tile-title:after{content:\"Projector\"}\n#tile-19{border-left:3px solid #c9b8ff!important}\n#tile-20 .tile-title:after{content:\"H2 outlet\"}\n#tile-20{border-left:3px solid #7f8c86!important}\n#tile-21 .tile-title:after{content:\"H2 outlet power\"}\n#tile-21{border-left:3px solid #7f8c86!important}\n#tile-22 .tile-title:after{content:\"Sofa lamp power\"}\n#tile-22{border-left:3px solid #7f8c86!important}\n#tile-23 .tile-title:after{content:\"Front door lock\"}\n#tile-23{border-left:3px solid #6fdc9a!important}\n#tile-24 .tile-title:after{content:\"Front door\"}\n#tile-24{border-left:3px solid #6fdc9a!important}\n#tile-25 .tile-title:after{content:\"Bedroom windows\"}\n#tile-25{border-left:3px solid #6fdc9a!important}\n#tile-26 .tile-title:after{content:\"Wintergarden windows\"}\n#tile-26{border-left:3px solid #6fdc9a!important}\n#tile-27 .tile-title:after{content:\"Bathroom leak\"}\n#tile-27{border-left:3px solid #6fdc9a!important}\n#tile-28 .tile-title:after{content:\"Kitchen valve\"}\n#tile-28{border-left:3px solid #ff8a5c!important}\n#tile-29 .tile-title:after{content:\"Living room L valve\"}\n#tile-29{border-left:3px solid #ff8a5c!important}\n#tile-30 .tile-title:after{content:\"Living room R valve\"}\n#tile-30{border-left:3px solid #ff8a5c!important}\n#tile-31 .tile-title:after{content:\"Bathroom valve\"}\n#tile-31{border-left:3px solid #ff8a5c!important}\n#tile-32 .tile-title:after{content:\"Bedroom valve\"}\n#tile-32{border-left:3px solid #ff8a5c!important}\n#tile-33 .tile-title:after{content:\"Lock battery\"}\n#tile-33{border-left:3px solid #7f8c86!important}\n\n.tile:not(.thermostat) .tile-contents{display:flex!important;flex-direction:column;align-items:center;justify-content:center;height:calc(100% - 30px)!important;padding:0 8px 8px!important}\n.tile:not(.thermostat) .tile-primary{display:flex;flex-direction:column;align-items:center;gap:2px}\n.tile .tile-primary i,.tile .tile-primary .material-icons{font-size:30px!important;line-height:1!important}\n.tile.attribute .tile-primary{font-size:20px!important;text-transform:capitalize}\n\n/* thermostat tile */\n.tile.thermostat{padding:6px 10px!important}\n.tile.thermostat .self-start .p-1{font:600 44px/1.1 -apple-system,\"SF Pro Display\",\"Segoe UI\",sans-serif!important;color:#f2f5f8;padding-top:14px!important}\n.tile.thermostat .self-start .p-1 small{font-size:18px;color:#9aa7b5}\n.tile.thermostat .self-start .p-1 span{display:block;font:500 13px/1.4 -apple-system,\"Segoe UI\",sans-serif;color:#9aa7b5;text-transform:capitalize}\n.tile.thermostat .flex-grow{margin-top:0!important;overflow:visible!important}\n.tile.thermostat .pt-1 .inline-block{font:600 24px/1.15 -apple-system,\"Segoe UI\",sans-serif!important;min-width:96px}\n.tile.thermostat .pt-1 .inline-block small{font-size:13px;color:#9aa7b5}\n.tile.thermostat .pt-1 i{font-size:40px!important;color:#5fd0e0!important;vertical-align:middle;cursor:pointer}\n.tile.thermostat .my-1{display:none!important}\n.tile.thermostat .absolute.bottom-0{visibility:hidden}\n.tile.thermostat .absolute.bottom-0:after{visibility:visible;content:\"Heating - master setpoint\";position:absolute;left:12px;bottom:8px;font:600 12px/1.2 -apple-system,\"Segoe UI\",sans-serif;color:#9aa7b5;letter-spacing:.02em}\n.tile.thermostat:has(.self-start.heating){background:#40200f!important;border-color:#ff8a5c!important}\n/* dimmer + shade tiles: icon, slider and value must fit one row */\n.tile.dimmer .tile-primary,.tile.shades .tile-primary{font-size:15px!important;gap:0!important;width:100%}\n.tile.dimmer .tile-primary i,.tile.shades .tile-primary i{font-size:22px!important}\n.tile.dimmer .tile-primary .dimmer,.tile.shades .tile-primary .dimmer{width:100%}\n.tile .vue-slider{padding:7px 0!important;height:6px!important;margin:0 14px!important}\n.tile .vue-slider-rail{background:#2a3340!important}\n.tile .vue-slider-process{background:#ffc857!important}\n.tile.shades .vue-slider-process{background:#c9b8ff!important}\n.tile .vue-slider-dot{width:16px!important;height:16px!important}\n.tile .vue-slider-dot-tooltip{display:none!important}\n@media (max-width:760px){\n#grid-wrapper{grid-template-columns:repeat(2,minmax(0,1fr))!important;grid-auto-rows:112px!important;grid-auto-flow:row dense!important}\n#tile-1{grid-area:auto/auto/span 2/span 2!important}\n#tile-2{grid-area:auto/auto/span 1/span 1!important}\n#tile-3{grid-area:auto/auto/span 1/span 1!important}\n#tile-4{grid-area:auto/auto/span 1/span 1!important}\n#tile-5{grid-area:auto/auto/span 1/span 1!important}\n#tile-6{grid-area:auto/auto/span 1/span 1!important}\n#tile-7{grid-area:auto/auto/span 1/span 1!important}\n#tile-8{grid-area:auto/auto/span 1/span 1!important}\n#tile-9{grid-area:auto/auto/span 1/span 1!important}\n#tile-10{grid-area:auto/auto/span 1/span 1!important}\n#tile-11{grid-area:auto/auto/span 1/span 1!important}\n#tile-12{grid-area:auto/auto/span 1/span 1!important}\n#tile-13{grid-area:auto/auto/span 1/span 1!important}\n#tile-14{grid-area:auto/auto/span 1/span 1!important}\n#tile-15{grid-area:auto/auto/span 1/span 1!important}\n#tile-16{grid-area:auto/auto/span 1/span 1!important}\n#tile-17{grid-area:auto/auto/span 1/span 1!important}\n#tile-18{grid-area:auto/auto/span 1/span 1!important}\n#tile-19{grid-area:auto/auto/span 1/span 1!important}\n#tile-20{grid-area:auto/auto/span 1/span 1!important}\n#tile-21{grid-area:auto/auto/span 1/span 1!important}\n#tile-22{grid-area:auto/auto/span 1/span 1!important}\n#tile-23{grid-area:auto/auto/span 1/span 1!important}\n#tile-24{grid-area:auto/auto/span 1/span 1!important}\n#tile-25{grid-area:auto/auto/span 1/span 1!important}\n#tile-26{grid-area:auto/auto/span 1/span 1!important}\n#tile-27{grid-area:auto/auto/span 1/span 1!important}\n#tile-28{grid-area:auto/auto/span 1/span 1!important}\n#tile-29{grid-area:auto/auto/span 1/span 1!important}\n#tile-30{grid-area:auto/auto/span 1/span 1!important}\n#tile-31{grid-area:auto/auto/span 1/span 1!important}\n#tile-32{grid-area:auto/auto/span 1/span 1!important}\n#tile-33{grid-area:auto/auto/span 1/span 1!important}\n}"
+}
