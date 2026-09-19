@@ -1,0 +1,253 @@
+{
+ "localization": "English",
+ "roundedCorners": 16,
+ "dateFormat": "DD/MM/YYYY",
+ "hideLabels": false,
+ "customColors": [
+  {
+   "template": "switches",
+   "bgColor": "",
+   "iconColor": "#ffc857",
+   "state": "on",
+   "customIcon": "he-bulb_on"
+  },
+  {
+   "template": "switches",
+   "bgColor": "",
+   "iconColor": "",
+   "state": "off",
+   "customIcon": "he-bulb_off"
+  },
+  {
+   "template": "valve",
+   "bgColor": "",
+   "iconColor": "#4ea8ff",
+   "state": "open",
+   "customIcon": ""
+  }
+ ],
+ "colWidth": "",
+ "cloudRefresh": 5,
+ "hsmPin": "",
+ "hide3dot": true,
+ "clockMode": true,
+ "gridGap": 10,
+ "goBack": true,
+ "tiles": [
+  {
+   "id": 1,
+   "template": "temperature",
+   "device": "136",
+   "row": 1,
+   "col": 1,
+   "rowSpan": 2,
+   "colSpan": 2
+  },
+  {
+   "id": 2,
+   "template": "humidity",
+   "device": "136",
+   "row": 1,
+   "col": 3,
+   "rowSpan": 1,
+   "colSpan": 1
+  },
+  {
+   "id": 3,
+   "template": "attribute",
+   "device": "135",
+   "row": 1,
+   "col": 4,
+   "rowSpan": 1,
+   "colSpan": 1,
+   "templateExtra": "switch"
+  },
+  {
+   "id": 4,
+   "template": "power",
+   "device": "135",
+   "row": 1,
+   "col": 5,
+   "rowSpan": 1,
+   "colSpan": 1
+  },
+  {
+   "id": 6,
+   "template": "temperature",
+   "device": "137",
+   "row": 2,
+   "col": 3,
+   "rowSpan": 1,
+   "colSpan": 1
+  },
+  {
+   "id": 7,
+   "template": "humidity",
+   "device": "137",
+   "row": 2,
+   "col": 4,
+   "rowSpan": 1,
+   "colSpan": 1
+  },
+  {
+   "id": 5,
+   "template": "switch",
+   "device": "133",
+   "row": 2,
+   "col": 5,
+   "rowSpan": 1,
+   "colSpan": 1
+  },
+  {
+   "id": 10,
+   "template": "switch",
+   "device": "34",
+   "row": 3,
+   "col": 1,
+   "rowSpan": 1,
+   "colSpan": 1
+  },
+  {
+   "id": 11,
+   "template": "switch",
+   "device": "65",
+   "row": 3,
+   "col": 2,
+   "rowSpan": 1,
+   "colSpan": 1
+  },
+  {
+   "id": 12,
+   "template": "switch",
+   "device": "97",
+   "row": 3,
+   "col": 3,
+   "rowSpan": 1,
+   "colSpan": 1
+  },
+  {
+   "id": 8,
+   "template": "outlet",
+   "device": "129",
+   "row": 3,
+   "col": 4,
+   "rowSpan": 1,
+   "colSpan": 1
+  },
+  {
+   "id": 9,
+   "template": "power",
+   "device": "129",
+   "row": 3,
+   "col": 5,
+   "rowSpan": 1,
+   "colSpan": 1
+  },
+  {
+   "id": 13,
+   "template": "valve",
+   "device": "143",
+   "row": 4,
+   "col": 1,
+   "rowSpan": 1,
+   "colSpan": 1
+  },
+  {
+   "id": 14,
+   "template": "valve",
+   "device": "147",
+   "row": 4,
+   "col": 2,
+   "rowSpan": 1,
+   "colSpan": 1
+  },
+  {
+   "id": 15,
+   "template": "valve",
+   "device": "138",
+   "row": 4,
+   "col": 3,
+   "rowSpan": 1,
+   "colSpan": 1
+  },
+  {
+   "id": 16,
+   "template": "valve",
+   "device": "145",
+   "row": 4,
+   "col": 4,
+   "rowSpan": 1,
+   "colSpan": 1
+  },
+  {
+   "id": 17,
+   "template": "valve",
+   "device": "139",
+   "row": 4,
+   "col": 5,
+   "rowSpan": 1,
+   "colSpan": 1
+  },
+  {
+   "id": 18,
+   "template": "battery",
+   "device": "143",
+   "row": 5,
+   "col": 1,
+   "rowSpan": 1,
+   "colSpan": 1
+  },
+  {
+   "id": 19,
+   "template": "battery",
+   "device": "147",
+   "row": 5,
+   "col": 2,
+   "rowSpan": 1,
+   "colSpan": 1
+  },
+  {
+   "id": 20,
+   "template": "battery",
+   "device": "138",
+   "row": 5,
+   "col": 3,
+   "rowSpan": 1,
+   "colSpan": 1
+  },
+  {
+   "id": 21,
+   "template": "battery",
+   "device": "145",
+   "row": 5,
+   "col": 4,
+   "rowSpan": 1,
+   "colSpan": 1
+  },
+  {
+   "id": 22,
+   "template": "battery",
+   "device": "139",
+   "row": 5,
+   "col": 5,
+   "rowSpan": 1,
+   "colSpan": 1
+  }
+ ],
+ "bgColor": "#0c1411",
+ "lanRefresh": 2,
+ "modesPin": "",
+ "iconSize": "34",
+ "cols": 5,
+ "rowHeight": 118,
+ "hideEvents": false,
+ "noColors": false,
+ "tempScale": "C",
+ "readOnly": null,
+ "rows": 5,
+ "hideIconText": false,
+ "hideTextShadow": true,
+ "name": "Garden",
+ "fontSize": 12,
+ "customCSS": "/* Garden dashboard - generated 2026-09-19. Desktop: 5 columns. Phone: 2 columns (auto flow). */\nbody,#app{background:#0c1411!important}\n#grid-wrapper{grid-auto-rows:118px!important;grid-template-rows:none!important;padding:6px 8px 24px!important}\n.tile{background:#15211c!important;border:1px solid #22332c;border-radius:16px!important;box-shadow:none!important;color:#e8f0ea!important;overflow:hidden}\n.tile .tile-title{font:600 12px/1.2 -apple-system,\"SF Pro Text\",\"Segoe UI\",sans-serif!important;letter-spacing:.02em;color:#9fb3a8!important;padding:10px 12px 0!important;text-align:left!important;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;visibility:hidden;position:relative}\n.tile .tile-title:after{visibility:visible;position:absolute;left:12px;top:10px;right:12px;overflow:hidden;text-overflow:ellipsis}\n.tile .tile-primary{font:600 26px/1.1 -apple-system,\"SF Pro Display\",\"Segoe UI\",sans-serif!important;color:#f3f7f4!important}\n.tile .tile-secondary{display:none!important}\n.tile .tile-edit,.tile .tile-menu{display:none!important}\n.tile .material-icons,.tile i{color:#9fb3a8}\n.tile.switch:has(.tile-primary.on),.tile.outlet:has(.tile-primary.on){background:#3a2f12!important;border-color:#ffc857!important}\n.tile .tile-primary.on i{color:#ffc857!important}\n.tile.valve:has(.tile-primary.open){background:#10304a!important;border-color:#4ea8ff!important}\n.tile.valve .tile-primary.open i{color:#4ea8ff!important}\n.header{background:#0c1411!important;color:#9fb3a8!important}\n\n#tile-1 .tile-title:after{content:\"Fridge\"}\n#tile-1{border-left:3px solid #5fd0e0!important}\n#tile-2 .tile-title:after{content:\"Fridge humidity\"}\n#tile-2{border-left:3px solid #5fd0e0!important}\n#tile-3 .tile-title:after{content:\"Fridge compressor\"}\n#tile-3{border-left:3px solid #5fd0e0!important}\n#tile-4 .tile-title:after{content:\"Fridge power\"}\n#tile-4{border-left:3px solid #5fd0e0!important}\n#tile-5 .tile-title:after{content:\"Boiler\"}\n#tile-5{border-left:3px solid #ff8a5c!important}\n#tile-6 .tile-title:after{content:\"Shower\"}\n#tile-6{border-left:3px solid #c9b8ff!important}\n#tile-7 .tile-title:after{content:\"Shower humidity\"}\n#tile-7{border-left:3px solid #c9b8ff!important}\n#tile-8 .tile-title:after{content:\"Porch sockets\"}\n#tile-8{border-left:3px solid #ffc857!important}\n#tile-9 .tile-title:after{content:\"Porch sockets power\"}\n#tile-9{border-left:3px solid #ffc857!important}\n#tile-10 .tile-title:after{content:\"Inside lights\"}\n#tile-10{border-left:3px solid #ffc857!important}\n#tile-11 .tile-title:after{content:\"Porch light\"}\n#tile-11{border-left:3px solid #ffc857!important}\n#tile-12 .tile-title:after{content:\"Back entrance\"}\n#tile-12{border-left:3px solid #ffc857!important}\n#tile-13 .tile-title:after{content:\"Front front\"}\n#tile-13{border-left:3px solid #4ea8ff!important}\n#tile-14 .tile-title:after{content:\"Front back + kiwi\"}\n#tile-14{border-left:3px solid #4ea8ff!important}\n#tile-15 .tile-title:after{content:\"Tomatoes\"}\n#tile-15{border-left:3px solid #4ea8ff!important}\n#tile-16 .tile-title:after{content:\"Berries\"}\n#tile-16{border-left:3px solid #4ea8ff!important}\n#tile-17 .tile-title:after{content:\"Herbs + lettuce\"}\n#tile-17{border-left:3px solid #4ea8ff!important}\n#tile-18 .tile-title:after{content:\"Front front battery\"}\n#tile-18{border-left:3px solid #7f8c86!important}\n#tile-19 .tile-title:after{content:\"Kiwi battery\"}\n#tile-19{border-left:3px solid #7f8c86!important}\n#tile-20 .tile-title:after{content:\"Tomatoes battery\"}\n#tile-20{border-left:3px solid #7f8c86!important}\n#tile-21 .tile-title:after{content:\"Berries battery\"}\n#tile-21{border-left:3px solid #7f8c86!important}\n#tile-22 .tile-title:after{content:\"Herbs battery\"}\n#tile-22{border-left:3px solid #7f8c86!important}\n#tile-1 .tile-primary{font-size:54px!important}\n\n.tile .tile-contents{display:flex!important;flex-direction:column;align-items:center;justify-content:center;height:calc(100% - 30px)!important;padding:0 8px 8px!important}\n.tile .tile-primary{display:flex;flex-direction:column;align-items:center;gap:2px}\n.tile .tile-primary i,.tile .tile-primary .material-icons{font-size:30px!important;line-height:1!important}\n#tile-5 .tile-primary i{display:none!important}\n#tile-5:has(.tile-primary.on){background:#40200f!important;border-color:#ff8a5c!important}\n@media (max-width:760px){\n#grid-wrapper{grid-template-columns:repeat(2,minmax(0,1fr))!important;grid-auto-rows:112px!important;grid-auto-flow:row dense!important}\n#tile-1{grid-area:auto/auto/span 1/span 2!important}\n#tile-2{grid-area:auto/auto/span 1/span 1!important}\n#tile-3{grid-area:auto/auto/span 1/span 1!important}\n#tile-4{grid-area:auto/auto/span 1/span 1!important}\n#tile-5{grid-area:auto/auto/span 1/span 1!important}\n#tile-6{grid-area:auto/auto/span 1/span 1!important}\n#tile-7{grid-area:auto/auto/span 1/span 1!important}\n#tile-8{grid-area:auto/auto/span 1/span 1!important}\n#tile-9{grid-area:auto/auto/span 1/span 1!important}\n#tile-10{grid-area:auto/auto/span 1/span 1!important}\n#tile-11{grid-area:auto/auto/span 1/span 1!important}\n#tile-12{grid-area:auto/auto/span 1/span 1!important}\n#tile-13{grid-area:auto/auto/span 1/span 1!important}\n#tile-14{grid-area:auto/auto/span 1/span 1!important}\n#tile-15{grid-area:auto/auto/span 1/span 1!important}\n#tile-16{grid-area:auto/auto/span 1/span 1!important}\n#tile-17{grid-area:auto/auto/span 1/span 1!important}\n#tile-18{grid-area:auto/auto/span 1/span 1!important}\n#tile-19{grid-area:auto/auto/span 1/span 1!important}\n#tile-20{grid-area:auto/auto/span 1/span 1!important}\n#tile-21{grid-area:auto/auto/span 1/span 1!important}\n#tile-22{grid-area:auto/auto/span 1/span 1!important}\n#tile-1 .tile-primary{font-size:44px!important}\n}"
+}
