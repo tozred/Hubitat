@@ -33,7 +33,7 @@ import groovy.transform.Field
 
 // ==================== Constants ====================
 
-@Field static final String DRIVER_VERSION = "1.0.0"
+@Field static final String DRIVER_VERSION = "1.0.1"
 
 // Cluster IDs
 @Field static final int CLUSTER_BASIC = 0x0000
@@ -490,7 +490,7 @@ private List handleMeteringCluster(String attrId, String value) {
             BigDecimal energy = rawValue / divisor
 
             // Format appropriately - 3 decimal places
-            BigDecimal energyFormatted = ((energy * 1000).toLong()) / 1000.0
+            BigDecimal energyFormatted = fixedScale(energy, 3)
             events << createEvent(name: "energy", value: energyFormatted, unit: "kWh")
             logInfo "Energy: ${energyFormatted} kWh"
             break
@@ -512,7 +512,7 @@ private List handleElectricalCluster(String attrId, String value) {
             Integer rawPower = Integer.parseInt(value, 16)
             BigDecimal divisor = state.powerDivisor ?: (powerDivisor ?: 10)
             BigDecimal power = rawPower / divisor
-            BigDecimal powerFormatted = ((power * 10).toLong()) / 10.0
+            BigDecimal powerFormatted = fixedScale(power, 1)
 
             events << createEvent(name: "power", value: powerFormatted, unit: "W")
             logInfo "Power: ${powerFormatted} W"
@@ -522,7 +522,7 @@ private List handleElectricalCluster(String attrId, String value) {
             Integer rawVoltage = Integer.parseInt(value, 16)
             BigDecimal vDivisor = state.voltageDivisor ?: (voltageDivisor ?: 10)
             BigDecimal voltage = rawVoltage / vDivisor
-            BigDecimal voltageFormatted = ((voltage * 10).toLong()) / 10.0
+            BigDecimal voltageFormatted = fixedScale(voltage, 1)
 
             events << createEvent(name: "voltage", value: voltageFormatted, unit: "V")
             logInfo "Voltage: ${voltageFormatted} V"
@@ -532,7 +532,7 @@ private List handleElectricalCluster(String attrId, String value) {
             Integer rawCurrent = Integer.parseInt(value, 16)
             BigDecimal cDivisor = state.currentDivisor ?: (currentDivisor ?: 1000)
             BigDecimal current = rawCurrent / cDivisor
-            BigDecimal currentFormatted = ((current * 1000).toLong()) / 1000.0
+            BigDecimal currentFormatted = fixedScale(current, 3)
 
             events << createEvent(name: "amperage", value: currentFormatted, unit: "A")
             logInfo "Current: ${currentFormatted} A"
@@ -603,6 +603,11 @@ void sendZigbeeCommands(def cmds) {
         def hubAction = new hubitat.device.HubAction(cmd.toString(), hubitat.device.Protocol.ZIGBEE)
         sendHubCommand(hubAction)
     }
+}
+
+// Fixed-scale rounding; avoids BigDecimal results such as 0E+1 when a reading is exactly zero
+private BigDecimal fixedScale(BigDecimal value, int places) {
+    return value.setScale(places, java.math.RoundingMode.HALF_UP)
 }
 
 // ==================== Logging ====================
