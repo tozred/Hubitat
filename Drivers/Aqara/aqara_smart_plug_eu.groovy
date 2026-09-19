@@ -34,7 +34,7 @@ import groovy.transform.Field
 
 // ==================== Constants ====================
 
-@Field static final String DRIVER_VERSION = "1.0.1"
+@Field static final String DRIVER_VERSION = "1.0.2"
 
 // Cluster IDs
 @Field static final int CLUSTER_BASIC = 0x0000
@@ -497,7 +497,7 @@ private List handleMeteringCluster(String attrId, String value) {
             def energyFormatted
             def unit = "kWh"
             if (energy < 0.01) {
-                energyFormatted = ((energy * 10000).toLong()) / 10.0  // 1 decimal place in Wh
+                energyFormatted = fixedScale(energy * 1000, 1)  // 1 decimal place in Wh
                 unit = "Wh"
             } else {
                 energyFormatted = fixedScale(energy, 3)  // 3 decimal places
