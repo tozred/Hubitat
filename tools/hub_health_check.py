@@ -4,7 +4,9 @@
 Reads the hub's local admin endpoints (hub login security must be off) and prints a
 short plain-text report. First line is always one of:
     STATUS: OK | STATUS: ISSUES | STATUS: UNREACHABLE
-Standard library only. Usage: hub_health_check.py [--hub http://10.20.20.4] [--json]
+The hubs are on different sites, so normally only one is reachable: a hub that does not
+answer is mentioned but only counts as UNREACHABLE when none of them answers.
+Standard library only. Usage: hub_health_check.py [--hub URL ...] [--json]
 """
 import argparse
 import collections
@@ -25,7 +27,7 @@ IGNORED_TYPES = ("Virtual", "Group", "Mobile App Device", "AirPlay", "SwitchBot"
 LAN_WATCHED_TYPES = ("Nuki Smart Lock", "Nuki Opener")
 
 
-def fetch(hub, path, timeout=25):
+def fetch(hub, path, timeout=12):
     with urllib.request.urlopen(f"{hub}/{path}", timeout=timeout) as r:
         return json.load(r)
 
@@ -95,6 +97,7 @@ def check(hub):
     noisy = [(n, c) for n, c in noisy.most_common() if c >= NOISY_LOG_LINES]
 
     return {
+        "hubName": hub_data.get("name") or hub,
         "hubVersion": hub_data.get("version"),
         "deviceCount": len(devices),
         "quiet": [{"id": d["id"], "name": d["name"], "room": d.get("roomName") or "-",
@@ -110,35 +113,55 @@ def has_batt(dev):
     return any(s["key"] == "battery" for s in dev.get("currentStates", []))
 
 
-def render(result):
-    issues = result["quiet"] or result["lowBattery"] or result["hubAlerts"] or result["noisyLogs"]
-    lines = [f"STATUS: {'ISSUES' if issues else 'OK'}",
-             f"Hubitat {result['hubVersion']}, {result['deviceCount']} devices checked"]
+def render_hub(result):
+    lines = [f"[{result['hubName']}] Hubitat {result['hubVersion']}, {result['deviceCount']} devices checked"]
+    if result["deviceCount"] == 0:
+        lines.append("  !! Hub reports ZERO devices - database loss? Check Settings > Backup and Restore.")
     if result["quiet"]:
-        lines.append("\nSilent devices (likely dead battery or dropped off the mesh):")
-        lines += [f"  - {q['name']} ({q['room']}): silent {q['silentFor']}" for q in result["quiet"]]
+        lines.append("  Silent devices (likely dead battery or dropped off the mesh):")
+        lines += [f"    - {q['name']} ({q['room']}): silent {q['silentFor']}" for q in result["quiet"]]
     if result["lowBattery"]:
-        lines.append("\nLow battery (still reporting):")
-        lines += [f"  - {b['name']}: {b['battery']}%" for b in result["lowBattery"]]
+        lines.append("  Low battery (still reporting):")
+        lines += [f"    - {b['name']}: {b['battery']}%" for b in result["lowBattery"]]
     if result["hubAlerts"]:
-        lines.append("\nHub alerts: " + ", ".join(result["hubAlerts"]))
+        lines.append("  Hub alerts: " + ", ".join(result["hubAlerts"]))
     if result["noisyLogs"]:
-        lines.append("\nWarnings/errors flooding the log:")
-        lines += [f"  - {n['source']}: {n['lines']} lines" for n in result["noisyLogs"]]
+        lines.append("  Warnings/errors flooding the log:")
+        lines += [f"    - {n['source']}: {n['lines']} lines" for n in result["noisyLogs"]]
     return "\n".join(lines)
+
+
+def has_issues(result):
+    return bool(result["quiet"] or result["lowBattery"] or result["hubAlerts"] or result["noisyLogs"]
+                or result["deviceCount"] == 0)
+
+
+DEFAULT_HUBS = ["http://10.20.20.4", "http://192.168.1.111"]   # Home, Garden
 
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
-    parser.add_argument("--hub", default="http://10.20.20.4")
-    parser.add_argument("--json", action="store_true", help="print raw result as JSON")
+    parser.add_argument("--hub", action="append", help="hub base URL (repeatable); default: Home and Garden")
+    parser.add_argument("--json", action="store_true", help="print raw results as JSON")
     args = parser.parse_args()
-    try:
-        result = check(args.hub.rstrip("/"))
-    except OSError as err:
-        print(f"STATUS: UNREACHABLE\nCould not reach the hub at {args.hub}: {err}")
+
+    results, unreachable = [], []
+    for hub in (args.hub or DEFAULT_HUBS):
+        try:
+            results.append(check(hub.rstrip("/")))
+        except OSError as err:
+            unreachable.append(f"{hub} ({err})")
+
+    if args.json:
+        print(json.dumps({"results": results, "unreachable": unreachable}, indent=2))
         return 0
-    print(json.dumps(result, indent=2) if args.json else render(result))
+    if not results:
+        print("STATUS: UNREACHABLE\nNo hub answered: " + "; ".join(unreachable))
+        return 0
+    print(f"STATUS: {'ISSUES' if any(has_issues(r) for r in results) else 'OK'}")
+    print("\n\n".join(render_hub(r) for r in results))
+    if unreachable:
+        print("\nNot reachable from this network (normal when the Mac is at the other site): " + "; ".join(unreachable))
     return 0
 
 

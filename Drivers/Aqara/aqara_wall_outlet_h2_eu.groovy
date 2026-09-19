@@ -19,9 +19,10 @@
  *  - Power outage counter
  *  - Health check monitoring
  *
- *  Version: 1.1.8
+ *  Version: 1.1.9
  *
  *  Changelog:
+ *  1.1.9 - Added disableDebugLogging command
  *  1.1.8 - Added readFirmwareInfo: fills manufacturer/model/application/softwareBuild/firmwareMT data
  *  1.1.7 - Parse-path diagnostics now respect the debug/description logging preferences
  *  1.1.6 - Fixed current value (divide by 1000 - value is in milliamps)
@@ -56,7 +57,7 @@ import groovy.transform.Field
 
 // ==================== Constants ====================
 
-@Field static final String DRIVER_VERSION = "1.1.8"
+@Field static final String DRIVER_VERSION = "1.1.9"
 
 // Default endpoint for switch control - This device uses endpoint 01 for the outlet
 @Field static final String DEFAULT_SWITCH_ENDPOINT = "01"
@@ -148,6 +149,7 @@ metadata {
 
         // Commands
         command "readFirmwareInfo"
+        command "disableDebugLogging"
         command "setPowerOnBehavior", [[name: "behavior*", type: "ENUM", constraints: ["off", "on", "previous", "inverted"],
                                         description: "off=always off, on=always on, previous=restore last state, inverted=opposite of last state"]]
         command "setOverloadProtection", [[name: "maxPower*", type: "NUMBER", description: "Max power before auto-off (100-3840W)"]]
@@ -1445,6 +1447,12 @@ void sendZigbeeCommands(def cmds) {
 }
 
 // ==================== Logging ====================
+
+// Lets automation (or a remote session) switch debug logging off without opening the preferences page
+def disableDebugLogging() {
+    device.updateSetting("logEnable", [value: "false", type: "bool"])
+    log.info "${device.displayName}: debug logging disabled"
+}
 
 private void logDebug(String msg) {
     if (logEnable) log.debug "${device.displayName}: ${msg}"
