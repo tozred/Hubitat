@@ -147,6 +147,7 @@ metadata {
         attribute "healthStatus", "enum", ["online", "offline"]
 
         // Thermostat commands
+        command "initialize"   // re-create the polling and health-check schedules, then configure
         command "logsOff"   // switch debug logging off now (also runs automatically 30 min after Save)
         command "setHeatingSetpoint", [[name: "temperature*", type: "NUMBER", description: "Temperature (4-35°C)"]]
         command "setThermostatMode", [[name: "mode*", type: "ENUM", constraints: ["off", "heat", "auto"]]]
