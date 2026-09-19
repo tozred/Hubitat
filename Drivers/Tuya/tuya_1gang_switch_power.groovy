@@ -170,7 +170,7 @@ def updated() {
     log.info "Tuya 1-Gang Switch updated"
     unschedule()
 
-    if (logEnable) runIn(1800, logsOff)
+    if (logEnable) runIn(86400, logsOff)   // debug logging switches itself off after 24 h
 
     // Store divisors in state
     state.powerDivisor = powerDivisor ?: 10

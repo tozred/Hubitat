@@ -32,7 +32,7 @@ import groovy.transform.Field
 
 // ==================== Constants ====================
 
-@Field static final String DRIVER_VERSION = "2.2.2"
+@Field static final String DRIVER_VERSION = "2.3.0"
 // Manufacturer code - can be string "0x1286" or integer 0x1286
 // Using string format for broader compatibility
 @Field static final String SONOFF_MFG_CODE = "0x1286"
@@ -77,7 +77,12 @@ import groovy.transform.Field
 @Field static final int ATTR_VALVE_CLOSING = 0x600C
 @Field static final int ATTR_EXTERNAL_TEMP = 0x600D
 @Field static final int ATTR_EXTERNAL_SENSOR = 0x600E
-@Field static final int ATTR_TEMP_ACCURACY = 0x600F
+@Field static final int ATTR_TEMP_ACCURACY = 0x6011          // INT16, 0.01 °C (0x600F was wrong; checked against zigbee-herdsman-converters)
+// Firmware 1.3+/1.4.x
+@Field static final int ATTR_TEMPORARY_MODE = 0x6014         // UINT8: 0 = boost, 1 = timer
+@Field static final int ATTR_TEMPORARY_MODE_TIME = 0x6015    // UINT32 seconds
+@Field static final int ATTR_TEMPORARY_MODE_TEMP = 0x6016    // INT16, 0.01 °C
+@Field static final int ATTR_SMART_TEMP_CONTROL = 0x6017     // BITMAP8: 1 = adaptive (PID) valve control
 
 // Power Cluster Attributes (0x0001)
 @Field static final int ATTR_BATTERY_VOLTAGE = 0x0020
@@ -141,6 +146,10 @@ metadata {
         attribute "externalTemperature", "number"
         attribute "externalSensor", "enum", ["internal", "external", "external_2", "external_3"]
         attribute "temperatureAccuracy", "number"
+        attribute "smartTemperatureControl", "enum", ["on", "off"]
+        attribute "temporaryMode", "enum", ["boost", "timer"]
+        attribute "temporaryModeMinutes", "number"
+        attribute "temporaryModeTemperature", "number"
         attribute "idleSteps", "number"
         attribute "closingSteps", "number"
         attribute "driverVersion", "string"
@@ -167,6 +176,10 @@ metadata {
         command "setExternalTemperature", [[name: "temperature*", type: "NUMBER", description: "External sensor temperature"]]
         command "setExternalSensor", [[name: "sensor*", type: "ENUM", constraints: ["internal", "external", "external_2", "external_3"]]]
         command "setTemperatureAccuracy", [[name: "accuracy*", type: "NUMBER", description: "Accuracy (-1 to -0.2°C)"]]
+        command "setSmartTemperatureControl", [[name: "enabled*", type: "ENUM", constraints: ["on", "off"], description: "Adaptive valve control (firmware 1.4+)"]]
+        command "boost", [[name: "minutes*", type: "NUMBER", description: "Full heat for this many minutes (1-180); firmware 1.4+"]]
+        command "timerMode", [[name: "minutes*", type: "NUMBER", description: "Duration in minutes (1-1440)"], [name: "temperature*", type: "NUMBER", description: "Target during the timer (4-35°C)"]]
+        command "readFirmware14Attributes"   // accuracy, smart control and temporary mode only (short, so a sleepy valve answers all of it)
         command "readAllAttributes"
         command "readCustomAttributes"
         command "forceRefresh"
@@ -245,7 +258,7 @@ def updated() {
     log.info "TRVZB Driver updated"
     unschedule()
 
-    if (logEnable) runIn(1800, logsOff)
+    if (logEnable) runIn(86400, logsOff)   // debug logging switches itself off after 24 h
 
     schedulePoll()
     scheduleHealthCheck()
@@ -458,6 +471,15 @@ private List readAllAttributesCmds() {
     return cmds
 }
 
+def readFirmware14Attributes() {
+    def cmds = []
+    [ATTR_TEMP_ACCURACY, ATTR_SMART_TEMP_CONTROL, ATTR_TEMPORARY_MODE, ATTR_TEMPORARY_MODE_TIME].each {
+        cmds += zigbee.readAttribute(CLUSTER_FC11, it)
+        cmds += "delay 200"
+    }
+    sendZigbeeCommands(cmds)
+}
+
 def readCustomAttributes() {
     logDebug "Reading FC11 custom attributes"
     def cmds = readCustomAttributesCmds()
@@ -487,6 +509,14 @@ private List readCustomAttributesCmds() {
     cmds += zigbee.readAttribute(CLUSTER_FC11, ATTR_EXTERNAL_TEMP)
     cmds += "delay 100"
     cmds += zigbee.readAttribute(CLUSTER_FC11, ATTR_EXTERNAL_SENSOR)
+    cmds += "delay 100"
+    cmds += zigbee.readAttribute(CLUSTER_FC11, ATTR_TEMP_ACCURACY)
+    cmds += "delay 100"
+    cmds += zigbee.readAttribute(CLUSTER_FC11, ATTR_SMART_TEMP_CONTROL)
+    cmds += "delay 100"
+    cmds += zigbee.readAttribute(CLUSTER_FC11, ATTR_TEMPORARY_MODE)
+    cmds += "delay 100"
+    cmds += zigbee.readAttribute(CLUSTER_FC11, ATTR_TEMPORARY_MODE_TIME)
 
     return cmds
 }
@@ -739,16 +769,54 @@ def setExternalSensor(String sensor) {
     sendZigbeeCommands(cmds)
 }
 
+def setSmartTemperatureControl(String enabled) {
+    logInfo "Setting smart temperature control ${enabled}"
+    def cmds = []
+    cmds += zigbee.writeAttribute(CLUSTER_FC11, ATTR_SMART_TEMP_CONTROL, 0x18, enabled == "on" ? 1 : 0)
+    cmds += "delay 500"
+    cmds += zigbee.readAttribute(CLUSTER_FC11, ATTR_SMART_TEMP_CONTROL)
+    sendZigbeeCommands(cmds)
+}
+
+// Boost: full heat for a limited time, then the valve returns to its normal setpoint (firmware 1.4+)
+def boost(minutes) {
+    startTemporaryMode(0, minutes, null)
+}
+
+// Timer: hold a different target temperature for a limited time (firmware 1.4+)
+def timerMode(minutes, temperature) {
+    startTemporaryMode(1, minutes, temperature)
+}
+
+// Same write order as zigbee-herdsman-converters: duration, (temperature), then the mode itself
+private void startTemporaryMode(int mode, minutes, temperature) {
+    int mins = Math.max(1, Math.min((minutes as BigDecimal).intValue(), mode == 0 ? 180 : 1440))
+    def cmds = []
+    cmds += zigbee.writeAttribute(CLUSTER_FC11, ATTR_TEMPORARY_MODE_TIME, 0x23, mins * 60)
+    cmds += "delay 300"
+    if (mode == 1 && temperature != null) {
+        BigDecimal t = [[temperature as BigDecimal, 35.0].min(), 4.0].max()
+        cmds += zigbee.writeAttribute(CLUSTER_FC11, ATTR_TEMPORARY_MODE_TEMP, 0x29, (t * 100) as int)
+        cmds += "delay 300"
+    }
+    cmds += zigbee.writeAttribute(CLUSTER_FC11, ATTR_TEMPORARY_MODE, 0x20, mode)
+    cmds += "delay 500"
+    cmds += zigbee.readAttribute(CLUSTER_FC11, ATTR_TEMPORARY_MODE)
+    cmds += zigbee.readAttribute(CLUSTER_FC11, ATTR_TEMPORARY_MODE_TIME)
+    logInfo "Starting ${mode == 0 ? 'boost' : 'timer'} mode for ${mins} min" + (mode == 1 ? " at ${temperature}°C" : "")
+    sendZigbeeCommands(cmds)
+}
+
 def setTemperatureAccuracy(accuracy) {
     BigDecimal accuracyVal = accuracy as BigDecimal
     accuracyVal = [[accuracyVal, -0.2].min(), -1.0].max()
     logInfo "Setting temperature accuracy to ${accuracyVal}°C"
 
-    // Accuracy is stored as Int8 with 0.1°C resolution (negative values)
-    def zigbeeAccuracy = (accuracyVal * 10) as int
+    // Accuracy is an Int16 with 0.01°C resolution (negative values, -1.00 .. -0.20)
+    def zigbeeAccuracy = (accuracyVal * 100) as int
 
     def cmds = []
-    cmds += zigbee.writeAttribute(CLUSTER_FC11, ATTR_TEMP_ACCURACY, 0x28, zigbeeAccuracy)
+    cmds += zigbee.writeAttribute(CLUSTER_FC11, ATTR_TEMP_ACCURACY, 0x29, zigbeeAccuracy)
     cmds += "delay 500"
     cmds += zigbee.readAttribute(CLUSTER_FC11, ATTR_TEMP_ACCURACY)
 
@@ -989,11 +1057,34 @@ private List handleFC11Cluster(String attrId, String value) {
             logDebug "External sensor: ${sensor}"
             break
 
-        case "600F":  // Temperature Accuracy
-            def accInt = hexToSignedInt(value)
-            def accuracy = new BigDecimal(accInt).divide(new BigDecimal(10), 1, BigDecimal.ROUND_HALF_UP)
+        case "6011":  // Temperature Accuracy (INT16, 0.01 °C)
+            def accuracy = formatTemperature(zigbeeToTemperature(value))
             events << createEvent(name: "temperatureAccuracy", value: accuracy, unit: "°C")
             logDebug "Temperature accuracy: ${accuracy}°C"
+            break
+
+        case "6014":  // Temporary mode (boost / timer)
+            def tm = Integer.parseInt(value, 16) == 0 ? "boost" : "timer"
+            events << createEvent(name: "temporaryMode", value: tm)
+            logDebug "Temporary mode: ${tm}"
+            break
+
+        case "6015":  // Temporary mode duration, seconds
+            def minutes = Math.round(Long.parseLong(value, 16) / 60.0) as int
+            events << createEvent(name: "temporaryModeMinutes", value: minutes, unit: "min")
+            logDebug "Temporary mode time: ${minutes} min"
+            break
+
+        case "6016":  // Temporary mode target temperature
+            def tmTemp = formatTemperature(zigbeeToTemperature(value))
+            events << createEvent(name: "temporaryModeTemperature", value: tmTemp, unit: "°C")
+            logDebug "Temporary mode temperature: ${tmTemp}°C"
+            break
+
+        case "6017":  // Smart temperature control
+            def smart = (Integer.parseInt(value, 16) & 0x01) ? "on" : "off"
+            events << createEvent(name: "smartTemperatureControl", value: smart)
+            logDebug "Smart temperature control: ${smart}"
             break
 
         default:

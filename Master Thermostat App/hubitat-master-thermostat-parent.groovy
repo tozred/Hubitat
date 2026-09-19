@@ -176,7 +176,7 @@ def initialize() {
     // Apply current schedule immediately
     runIn(5, applyCurrentSchedule)
 
-    if (logEnable) runIn(1800, logsOff)
+    if (logEnable) runIn(86400, logsOff)   // debug logging switches itself off after 24 h
 }
 
 def appButtonHandler(String buttonName) {
