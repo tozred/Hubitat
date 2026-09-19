@@ -101,6 +101,7 @@ metadata {
             [name: "Liters*",     type: "NUMBER", description: "Single irrigation capacity, liters (0-6500)"],
             [name: "Interval (s)*", type: "NUMBER", description: "Interval between cycles, seconds (0-86400)"]]
         command "stopCyclicIrrigation"
+        command "logsOff"   // switch debug logging off now (also runs automatically 30 min after Save)
         command "setChildLock", [[name: "State*", type: "ENUM", constraints: ["lock", "unlock"],
             description: "Hydro models only — lock/unlock the physical button"]]
 
