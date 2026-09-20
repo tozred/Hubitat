@@ -11,6 +11,7 @@ Standard library only. Usage: hub_health_check.py [--hub URL ...] [--json]
 import argparse
 import collections
 import json
+import os
 import sys
 import urllib.request
 from datetime import datetime, timezone
@@ -27,11 +28,13 @@ NOISY_LOG_LINES = 200    # WARN/ERROR lines from one source within the log buffe
 IGNORED_TYPES = ("Virtual", "Group", "Mobile App Device", "AirPlay", "SwitchBot")
 LAN_WATCHED_TYPES = ("Nuki Smart Lock", "Nuki Opener")
 
-# Devices deliberately out of service. Listed in the report so they are not forgotten,
-# but never counted as a problem. Remove the entry when the device goes back in use.
-PARKED = {
-    "Fan": "stored away for winter (since 2026-09-20)",
-}
+# Devices deliberately out of service, by device name. Listed in the report so they are not
+# forgotten, but never counted as a problem; remove an entry when the device goes back in use.
+# This is local config - set HUBITAT_PARKED to "Name=reason;Name=reason" to fill it, so that
+# a device someone else happens to have named "Fan" is not silently ignored.
+PARKED = dict(
+    entry.split("=", 1) for entry in os.environ.get("HUBITAT_PARKED", "").split(";") if "=" in entry
+)
 
 
 def fetch(hub, path, timeout=12):
@@ -179,17 +182,25 @@ def has_issues(result):
                 or result["deviceCount"] == 0)
 
 
-DEFAULT_HUBS = ["http://10.20.20.4", "http://192.168.1.111"]   # Home, Garden
+# Hubs checked when --hub is not given. Set HUBITAT_HUBS to a comma-separated list of base
+# URLs, e.g. HUBITAT_HUBS="http://192.168.1.10,http://192.168.2.10"
+DEFAULT_HUBS = [h.strip() for h in os.environ.get("HUBITAT_HUBS", "").split(",") if h.strip()]
 
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
-    parser.add_argument("--hub", action="append", help="hub base URL (repeatable); default: Home and Garden")
+    parser.add_argument("--hub", action="append",
+                        help="hub base URL (repeatable); defaults to $HUBITAT_HUBS")
     parser.add_argument("--json", action="store_true", help="print raw results as JSON")
     args = parser.parse_args()
 
+    hubs = args.hub or DEFAULT_HUBS
+    if not hubs:
+        print("No hub given. Pass --hub http://<ip> (repeatable), or set HUBITAT_HUBS.")
+        return 2
+
     results, unreachable = [], []
-    for hub in (args.hub or DEFAULT_HUBS):
+    for hub in hubs:
         try:
             results.append(check(hub.rstrip("/")))
         except OSError as err:

@@ -5,7 +5,7 @@ The app only handles one device at a time and has no queue, so this drives its J
 select node -> read firmware targets -> pick target + file -> start -> wait -> re-read version.
 Never aborts a transfer; a device that stops answering is given time, then the next one is tried.
 
-Usage: zwave_fw_sequencer.py --hub http://192.168.1.111 --app 115 --file NAME.gbl --want 14.01 8 6 7 9
+Usage: zwave_fw_sequencer.py --hub http://<hub-ip> --app 115 --file NAME.gbl --want 14.01 8 6 7 9
 """
 import argparse
 import json

@@ -5,7 +5,8 @@ Polls /logs/past/json, appends every line not seen before to one file per day, a
 small state file so restarts do not duplicate lines. Also snapshots hub events once an hour.
 Standard library only.
 
-Usage: hub_log_collector.py [--hub http://10.20.20.4] [--out DIR] [--every 60]
+Usage: hub_log_collector.py --hub http://<hub-ip> [--out DIR] [--every 60]
+       the hub may also come from $HUBITAT_HUB
 Run detached:  nohup caffeinate -i python3 tools/hub_log_collector.py >/dev/null 2>&1 &
 """
 import argparse
@@ -25,10 +26,13 @@ def fetch(url, timeout=40):
 
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("--hub", default="http://10.20.20.4")
+    ap.add_argument("--hub", default=os.environ.get("HUBITAT_HUB"),
+                    help="hub base URL; defaults to $HUBITAT_HUB")
     ap.add_argument("--out", default=os.path.expanduser("~/Documents/GitHub/hubitat-backups/home/logs"))
     ap.add_argument("--every", type=int, default=60)
     a = ap.parse_args()
+    if not a.hub:
+        ap.error("no hub given: pass --hub http://<ip> or set HUBITAT_HUB")
     os.makedirs(a.out, exist_ok=True)
     state_file = os.path.join(a.out, ".collector-state.json")
     try:
