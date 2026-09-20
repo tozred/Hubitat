@@ -33,7 +33,7 @@ import groovy.transform.Field
 
 // ==================== Constants ====================
 
-@Field static final String DRIVER_VERSION = "1.0.1"
+@Field static final String DRIVER_VERSION = "1.0.2"
 
 // Cluster IDs
 @Field static final int CLUSTER_BASIC = 0x0000
@@ -130,7 +130,7 @@ metadata {
                   ["300": "Every 5 minutes"],
                   ["600": "Every 10 minutes"]
               ],
-              defaultValue: "60"
+              defaultValue: "300"
 
         input name: "healthCheckInterval", type: "enum", title: "Health check interval",
               options: [
@@ -146,8 +146,8 @@ metadata {
               defaultValue: 10
 
         input name: "voltageDivisor", type: "number", title: "Voltage divisor",
-              description: "Divisor for voltage calculation (default: 10)",
-              defaultValue: 10
+              description: "Divisor for voltage calculation (these report whole volts, default: 1)",
+              defaultValue: 1
 
         input name: "currentDivisor", type: "number", title: "Current divisor",
               description: "Divisor for current calculation (default: 1000)",
@@ -174,7 +174,7 @@ def updated() {
 
     // Store divisors in state
     state.powerDivisor = powerDivisor ?: 10
-    state.voltageDivisor = voltageDivisor ?: 10
+    state.voltageDivisor = voltageDivisor ?: 1
     state.currentDivisor = currentDivisor ?: 1000
     state.energyDivisor = energyDivisor ?: 100
 
@@ -190,7 +190,7 @@ def initialize() {
 
     state.lastSuccessfulComm = now()
     state.powerDivisor = powerDivisor ?: 10
-    state.voltageDivisor = voltageDivisor ?: 10
+    state.voltageDivisor = voltageDivisor ?: 1
     state.currentDivisor = currentDivisor ?: 1000
     state.energyDivisor = energyDivisor ?: 100
 
@@ -521,7 +521,7 @@ private List handleElectricalCluster(String attrId, String value) {
 
         case "0505":  // RMS Voltage
             Integer rawVoltage = Integer.parseInt(value, 16)
-            BigDecimal vDivisor = state.voltageDivisor ?: (voltageDivisor ?: 10)
+            BigDecimal vDivisor = state.voltageDivisor ?: (voltageDivisor ?: 1)
             BigDecimal voltage = rawVoltage / vDivisor
             BigDecimal voltageFormatted = fixedScale(voltage, 1)
 
