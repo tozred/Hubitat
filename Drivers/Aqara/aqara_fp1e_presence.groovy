@@ -99,8 +99,11 @@ metadata {
     "high": 3
 ]
 
+// 0x0160. Codes 0 and 1 mean the sensor has not classified the room yet - it reports 0 for a
+// few seconds after joining, before it settles.
 @Field static final Map ACTIVITY_STATE_MAP = [
     0: "unknown",
+    1: "unknown",
     2: "idle",
     3: "large movement",
     4: "small movement"
