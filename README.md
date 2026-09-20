@@ -21,6 +21,10 @@ A comprehensive driver for the SONOFF TRVZB Thermostatic Radiator Valve.
 - External temperature sensor support
 - Battery monitoring
 - Robust error handling and auto-recovery
+- **Firmware 1.4.x features:** boost mode, timer mode (hold a temperature for N minutes) and
+  smart temperature control, via the Sonoff custom cluster `0xFC11`
+- `initialize` exposed as a command, to restore polling and health-check schedules without
+  re-saving preferences
 
 **Supported Models:** SONOFF TRVZB
 
@@ -43,6 +47,54 @@ Driver for the Sonoff SNZB-04P door/window contact sensor with tamper detection.
 **Supported Models:** SNZB-04P
 
 **Note:** The tamper sensor is triggered when the back cover is removed or the tamper button is pressed. This is useful for security monitoring.
+
+---
+
+#### Sonoff SWV Water Valve
+**Location:** `Drivers/Sonoff/sonoff_swv_water_valve.groovy`
+
+One driver covering two Sonoff water-valve families, branched on the reported Zigbee model.
+Built from the `SWV` definition in Koenkk/zigbee-herdsman-converters (`src/devices/sonoff.ts`).
+
+**Features:**
+- Valve open/close with state reporting
+- Battery monitoring
+- Flow rate (m³/h) via the Flow Measurement cluster
+- Leak and water-shortage status
+- Auto-close on water shortage (firmware 1.0.4+)
+- Real-time and hourly irrigation volume and duration
+- Cyclic irrigation (SWV BSP/NH)
+- Child lock and fail-safe status (Hydro models)
+- `genTime` sync, which the Hydro models require
+
+**Supported Models:** SWV-BSP, SWV-NH, and Hydro SWV-ZFE / ZFU / ZNE / ZNU
+
+**Note:** the two families are not just cosmetically different — the eWeLink custom cluster
+(`0xFC11`) encodes its numerics **little-endian** on SWV BSP/NH and **big-endian** on the
+Hydro models. The driver picks the right one from the model string. Irrigation plans, rain
+delay, seasonal adjustment and the 30-day history are not implemented yet.
+
+---
+
+#### Nuki Bridge and Opener (patched)
+**Location:** `Drivers/Nuki/nuki-bridge-maffpt-patched.groovy`, `Drivers/Nuki/nuki-opener-maffpt-patched.groovy`
+
+Patched versions of Marco Felicio's (`maffpt`) Nuki drivers, kept here because the upstream
+versions have two problems that break the integration in normal use.
+
+**What is fixed:**
+- **The bridge dies when its IP changes.** A DHCP lease change leaves the device pointing at
+  an address that no longer answers, with no way to correct it short of re-adding everything.
+  Added `setBridgeAddress(ip[, token])` to re-point an existing bridge device, plus
+  `testBridge` to check the stored address and token, `registerCallbacks` to re-register the
+  hub as a callback target, and `releaseAddress`.
+- **The Opener reported battery as a boolean.** Upstream sent Nuki's `batteryCritical` flag
+  straight to the `battery` attribute, so the dashboard showed `false` instead of a
+  percentage. It now prefers `batteryChargeState`, falling back to 10% / 100% derived from
+  `batteryCritical` when the bridge does not report a level.
+
+**Note:** assign a fixed DHCP reservation to the Nuki bridge. These drivers make a changed
+address recoverable, but not painless.
 
 ---
 
@@ -172,23 +224,49 @@ Driver for the Aqara FP1E mmWave radar human presence detector.
 - Device temperature monitoring
 - Configurable motion timeout
 - Spam filter for distance reports
+- Reports its parent router (`parentNWK`), for diagnosing mesh problems
 
 **Supported Models:** lumi.sensor_occupy.agl1 / RTCZCGQ13LM
 
-**Important Pairing Notes:**
-The FP1E requires a special "double-join" procedure to work properly with Hubitat:
+**Why this device keeps dropping off the mesh**
 
-1. **Reset the device:** Hold the reset button for 10 seconds
-2. **Prepare Hubitat:**
-   - Go to Settings > Zigbee Details
-   - Click "Rebuild Zigbee Network" (do this twice)
-   - Start pairing with "Pair while trying to avoid Zigbee 3.0 repeaters" option
-3. **First pairing:** Hold the FP1E button for 5 seconds until LED blinks, let it pair
-4. **DON'T delete the device** even if it appears incomplete
-5. **Reboot the hub**
-6. **Second pairing:** Put hub in pairing mode again, hold FP1E button again
-7. The hub will recognize the existing device and complete initialization
-8. Assign the "Aqara FP1E Presence Sensor" driver and click Configure
+The common complaint about the FP1E on Hubitat is that it pairs, works for a while, then
+goes silent — often with one-way comms, where the hub still receives its reports but the
+device ignores anything sent to it.
+
+The cause is that Aqara end devices expect to be talking to an Aqara hub. This driver
+answers the handshake they look for, which kkossev's Aqara drivers call the *black magic*:
+
+- it replies to the device's ZDO Node Descriptor request (cluster `0x0002`, for NWK `0000`
+  only) with a coordinator descriptor carrying Lumi's manufacturer code `0x115F`
+- it answers the ZDO End Device Timeout request (`0x0036`)
+- it re-sends both on every device announcement (`0x0013`), so the handshake survives a
+  rejoin or a change of parent router
+
+Equally important is what the driver does **not** do. The FP1E pushes its `0xFCC0` reports
+unsolicited: it needs no bindings and no attribute reporting, and writing to it immediately
+after it joins is what destabilises it. `configure()` therefore asserts the hub identity and
+defers reading its settings by 10 seconds.
+
+**Pairing**
+
+With the handshake in place the join is usually straightforward, but if it fails:
+
+1. Install this driver **first**, so it is available when the device joins.
+2. Settings > Zigbee Details > **Rebuild network**, and run it **twice**.
+3. Devices > **Add device** > Zigbee. If a plain join does not stick, use
+   **"Pair using strict Zigbee 3.0 mode"** — the FP1E's symptom (found and initialised, but
+   unresponsive with no attributes) is exactly the case that option is meant for.
+4. Wait until the status leaves *"Preparing network"*, then hold the FP1E reset button for
+   about 5 seconds until the LED flashes 3–4 times. The pairing window is short, so be at
+   the device before starting it.
+5. **Never delete the device in Hubitat.** Zigbee has no exclude: re-joining is recognised as
+   *"Found previously joined Zigbee device"* and keeps the device's history and automations.
+6. It is common for this sensor to only work on the **second** join attempt. Repeat step 3–4
+   rather than deleting anything.
+
+If it still misbehaves afterwards, check the `parentNWK` attribute — an Aqara end device
+parked on an unsuitable router is the usual cause of one going quiet after a few hours.
 
 ---
 
@@ -210,6 +288,10 @@ Driver for Tuya-based 1-gang switches with power monitoring.
 
 **Supported Models:** TS0001 / _TZ3000_qlai3277 (Zemismart, Nous B2Z)
 
+**Note:** these switches report RMS voltage in whole volts and do not answer the AC voltage
+divisor query (`0x0601`), so the voltage divisor defaults to **1**. If yours reports a tenth
+of the real mains voltage, check that preference before anything else.
+
 ---
 
 #### Tuya TS130F Curtain/Blind Motor
@@ -224,8 +306,15 @@ Driver for Tuya TS130F curtain/blind motor controllers. Ideal for cinema screens
 - Configurable default open/close positions
 - Motor reversal command
 - Calibration mode support
+- **Calibration time** — set the motor's stored full-travel time in seconds
+- **Travel limits** — separate open and closed limits on the motor's own scale, for shades
+  that over-run their stop (for example a blind that pools on the floor at the bottom)
+- Moving state (opening / closing / stopped)
 - Button Controller compatible (Open/Close/Stop)
 - Works with WindowShade, Switch, and SwitchLevel capabilities
+
+Uses the Tuya manufacturer-specific attributes on the Window Covering cluster
+(`0xF000`–`0xF003`), matching zigbee2mqtt and the ZHA quirk.
 
 **Button Mapping:**
 - Button 1: Open (to default open position)
@@ -311,6 +400,9 @@ Unified heating control system for multiple TRVs.
 - Window detection integration
 - Child lock control across all TRVs
 - Temperature range monitoring from multiple sensors
+- **Setpoint verification:** battery TRVs drop commands, so the zone re-reads its valves two
+  minutes after applying a setpoint, resends to any that did not take it (up to three
+  attempts) and then warns, naming the valve
 
 **Installation Order:**
 1. Install "Virtual Master Thermostat" driver
@@ -318,7 +410,105 @@ Unified heating control system for multiple TRVs.
 3. Install "Room Zone" child app
 4. Add app instance and configure
 
+**Note on window sensors:** a Room Zone applies its window action when *any* of its assigned
+contact sensors opens. Assign only the sensors for windows in that room — a sensor shared
+with another zone will drop this room's radiators too.
+
 ---
+
+#### Fridge Logger
+**Location:** `Apps/fridge-logger.groovy`
+
+Logs fridge temperature and humidity, and compressor on/off changes from a smart plug, to CSV
+files in the hub's own File Manager. Everything runs on the hub, so history keeps accumulating
+even when nothing else is connected and no cloud service is involved.
+
+**Files produced** (readable at `http://<hub>/local/<name>`):
+- `fridge-YYYY-MM.csv` — `timestamp,attribute,value`
+- `fridge-daily.csv` — one summary line per day: `date,minTemp,maxTemp,avgTemp,readings,minutesAbove6,compressorOnMinutes,cycles`
+
+Useful for spotting a fridge that is cooling but cycling too often, or one that quietly
+drifted above 6 °C.
+
+---
+
+### Tools
+
+Standard-library Python scripts that talk to a hub's local admin endpoints. They need
+**hub login security switched off**, and they only read unless stated otherwise.
+
+Hub addresses are never hardcoded: pass `--hub http://<ip>` or set `HUBITAT_HUBS`
+(comma-separated) / `HUBITAT_HUB`.
+
+#### `tools/hub_health_check.py`
+Daily health report: devices that have gone silent, low batteries, hub alerts and log floods.
+Prints `STATUS: OK`, `STATUS: ISSUES` or `STATUS: UNREACHABLE` as its first line, so it is
+easy to wire to a notification. Handles several hubs on different sites — a hub that does not
+answer is only `UNREACHABLE` when none of them do.
+
+Liveness is judged on events the device itself produced, read from
+`/device/eventsJson/<id>`, **not** on `lastActivity`. Saving a preference re-runs a driver's
+`initialize()`, which stamps `lastActivity` and files "Initialized" events — so a device that
+fell off the mesh weeks ago looks healthy right after any settings change. Radio traffic
+counts as life too, because contact sensors legitimately sit days between events.
+
+Set `HUBITAT_PARKED="Name=reason;Name=reason"` for devices deliberately out of service; they
+are listed as parked rather than reported as faults.
+
+```bash
+python3 tools/hub_health_check.py --hub http://192.168.1.10 [--json]
+```
+
+#### `tools/hub_log_collector.py`
+The hub only keeps a few hours of log. This polls `/logs/past/json`, appends anything new to
+one file per day, glues multi-line entries back together, and notes a gap if the buffer rolled
+over before the next poll. Keeps a small state file so restarts do not duplicate lines.
+
+```bash
+nohup caffeinate -i python3 tools/hub_log_collector.py --hub http://192.168.1.10 &
+```
+
+#### `tools/hub_cmd.py`
+Calls a tool on a hub's built-in MCP endpoint without an MCP client, using the token from
+`~/.claude.json`. Useful for running device commands from a script.
+
+```bash
+python3 tools/hub_cmd.py run_device_command '{"deviceId":35,"command":"refresh"}'
+```
+
+Thermostats, locks and doors additionally need `"allowSensitive":true`.
+
+#### `tools/zwave_fw_sequencer.py`
+Drives a multi-step Z-Wave firmware update through the hub's updater app.
+
+---
+
+### Dashboards
+
+`Dashboards/*.json` are exported layouts for Hubitat's built-in dashboards, kept in version
+control so a layout can be restored after an accident. They are specific to the device IDs of
+the hub they came from, so treat them as worked examples rather than something to import
+directly.
+
+---
+
+## Upgrading
+
+A few changes alter behaviour on devices that are already paired:
+
+- **Tuya 1-Gang Switch 1.0.2** — the voltage divisor now defaults to **1**. These switches
+  report RMS voltage in whole volts and never answer the divisor query, so the previous
+  default of 10 reported 23 V on a 230 V supply. If you set the divisor by hand to work
+  around that, set it back to 1. The default power poll also drops from 60 s to 300 s.
+- **Sonoff TRVZB 2.3.0** — temperature accuracy was being read and written at the wrong
+  attribute, with the wrong type and scale; it is now `0x6011` (INT16, ×100). Adds boost,
+  timer mode and smart temperature control for firmware 1.4.x.
+- **Aqara FP1E** — detection range (`0x015B`) is a uint32, not a uint16, so range writes were
+  previously rejected by the device. Settings are now read back after writing, because this
+  device acknowledges writes it did not apply.
+- **Room Zone 1.2.0** — the window action no longer writes setpoints straight to the valves.
+  It went through a path that bypassed the app's own guard, so the app could read its own
+  write back as a *manual override* and leave a radiator stuck at frost protection.
 
 ## Project Structure
 
@@ -334,17 +524,31 @@ hubitat/
 │   │   └── aqara_climate_sensor_w100.groovy
 │   ├── Sonoff/
 │   │   ├── zigbee-sonoff-trvzb.groovy
-│   │   └── sonoff_snzb04p_contact.groovy
+│   │   ├── sonoff_snzb04p_contact.groovy
+│   │   └── sonoff_swv_water_valve.groovy
 │   ├── Tuya/
 │   │   ├── tuya_1gang_switch_power.groovy
 │   │   └── tuya_ts130f_curtain_motor.groovy
 │   ├── Sunricher/
 │   │   └── sunricher_dimmer.groovy
+│   ├── Nuki/
+│   │   ├── nuki-bridge-maffpt-patched.groovy
+│   │   └── nuki-opener-maffpt-patched.groovy
 │   └── zigbee-device-discovery.groovy
+├── Apps/
+│   └── fridge-logger.groovy
 ├── Master Thermostat App/
 │   ├── hubitat-master-thermostat-parent.groovy
 │   ├── hubitat-master-thermostat-child.groovy
 │   └── hubitat-virtual-master-thermostat.groovy
+├── Dashboards/
+│   ├── home-layout.json
+│   └── garden-layout.json
+├── tools/
+│   ├── hub_health_check.py
+│   ├── hub_log_collector.py
+│   ├── hub_cmd.py
+│   └── zwave_fw_sequencer.py
 ├── .gitignore
 ├── LICENSE
 └── README.md
@@ -370,6 +574,9 @@ hubitat/
 
 - Hubitat Elevation hub
 - Compatible Zigbee devices
+- For the scripts in `tools/`: Python 3 (standard library only), and **hub login security
+  switched off**, since they use the hub's local admin endpoints. If you keep hub login
+  security on, the drivers and apps still work — only the tools need it.
 
 ## Credits
 
@@ -387,6 +594,7 @@ The following resources were used as references during development:
 #### Sonoff Devices
 - [Zigbee2MQTT - Sonoff TRVZB](https://www.zigbee2mqtt.io/devices/TRVZB.html) - Device specifications and custom cluster (FC11) documentation
 - [Zigbee2MQTT - Sonoff SNZB-04P](https://www.zigbee2mqtt.io/devices/SNZB-04P.html) - SNZB-04P contact sensor documentation
+- [zigbee-herdsman-converters - sonoff.ts](https://github.com/Koenkk/zigbee-herdsman-converters/blob/master/src/devices/sonoff.ts) - SWV water valve cluster map and the eWeLink FC11 attributes
 - [Sonoff SNZB-04P Product Page](https://sonoff.tech/en-us/products/sonoff-zigbee-door-window-sensor-snzb-04p) - Official product specifications
 - [Koenkk/zigbee-herdsman-converters](https://github.com/Koenkk/zigbee-herdsman-converters) - Converter implementations and attribute mappings
 
@@ -417,6 +625,10 @@ The following resources were used as references during development:
 #### Sunricher Devices
 - [Zigbee2MQTT - Sunricher Dimmer](https://www.zigbee2mqtt.io/devices/HK-SL-DIM-US-A.html) - Sunricher dimmer documentation
 - [Sunricher HK-SL-DIM-EU-A Support](https://github.com/Koenkk/zigbee2mqtt/issues/14315) - Device implementation details
+
+#### Nuki
+- [maffpt/Hubitat Nuki drivers](https://github.com/maffpt/Hubitat) - Marco Felicio's original Nuki Bridge, Smart Lock and Opener drivers, which the patched versions here are based on
+- [Nuki Bridge HTTP API](https://developer.nuki.io/page/nuki-bridge-http-api-1-13/4) - Bridge endpoint and callback documentation
 
 #### Hubitat Development
 - [Hubitat Developer Documentation](https://docs2.hubitat.com/en/developer) - Official Hubitat driver and app development guides
