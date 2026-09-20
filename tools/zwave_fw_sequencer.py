@@ -57,6 +57,17 @@ class Dfu:
         req = urllib.request.Request(f"{self.hub}/installedapp/update/json", data=urllib.parse.urlencode(form).encode())
         urllib.request.urlopen(req, timeout=30).read()
 
+    def clear_progress(self, avoid):
+        """Drop a finished-but-still-'active' progress record.
+
+        The app keeps the record until another device is selected, and while it is there every
+        new update request stops at STARTING. It also survives a hub restart, so clearing it is
+        the only way to make a second update work.
+        """
+        decoy = "6" if str(avoid) != "6" else "7"
+        self.set("zwaveUpdatePage", "deviceToUpdate", decoy)
+        time.sleep(4)
+
     def targets(self, node, tries=4):
         """Select the node and return {target: 'text'}; the app queries the device on selection."""
         for attempt in range(tries):
@@ -87,6 +98,7 @@ def wait_idle(dfu, limit=900):
 
 
 def update(dfu, node, filename, want):
+    dfu.clear_progress(node)
     targets = dfu.targets(node)
     if not targets:
         log(f"node {node}: SKIPPED - device does not answer")
@@ -119,6 +131,7 @@ def update(dfu, node, filename, want):
             log(f"node {node}: no report from the device for 10 min in stage {stage} - moving on")
             break
     time.sleep(45)                                       # let the device reboot
+    dfu.clear_progress(node)                             # else the version read returns the cached value
     after = version_of(dfu.targets(node))
     log(f"node {node}: RESULT {before} -> {after}")
     return after
@@ -133,7 +146,10 @@ def main():
     ap.add_argument("nodes", type=int, nargs="+")
     a = ap.parse_args()
     dfu = Dfu(a.hub, a.app)
-    if not wait_idle(dfu):
+    # A record left "active" by an earlier session survives a hub restart, so drop it first
+    # instead of letting wait_idle burn its full timeout on it.
+    dfu.clear_progress(a.nodes[0])
+    if not wait_idle(dfu, limit=60):
         log("an earlier update is still marked active after 15 min; continuing anyway")
     results = {}
     for node in a.nodes:
