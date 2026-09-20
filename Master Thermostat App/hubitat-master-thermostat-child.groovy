@@ -15,7 +15,13 @@
 
 import groovy.transform.Field
 
-@Field static final String APP_VERSION = "1.1.0"
+@Field static final String APP_VERSION = "1.2.0"
+
+// Battery TRVs apply a setpoint on their next wake, so give them a wake cycle before
+// checking, then resend to any valve that did not take it.
+@Field static final int SETPOINT_VERIFY_DELAY = 120
+@Field static final int SETPOINT_MAX_RETRIES = 3
+@Field static final BigDecimal SETPOINT_TOLERANCE = 0.25
 
 definition(
     name: "Room Zone",
@@ -140,6 +146,7 @@ def initialize() {
     state.lastAppliedSetpoint = state.lastAppliedSetpoint ?: null
     state.currentMode = "heat"
     state.pendingSetpoint = null
+    state.setpointRetries = 0
 
     // Subscribe to TRV events
     if (trvDevices) {
@@ -277,10 +284,59 @@ def setRoomTemperature(BigDecimal temp) {
 
     // Notify parent of temperature change
     runIn(2, notifyParentTemperature)
+
+    // These are battery valves and they do drop commands: a lost write once left a radiator
+    // sitting at frost protection for twelve hours while the rest of the room was at 16°C.
+    state.setpointRetries = 0
+    runIn(SETPOINT_VERIFY_DELAY, verifySetpoints)
 }
 
 def clearApplyingFlag() {
     state.applyingSetpoint = false
+}
+
+/** Resend the room setpoint to any valve that did not actually take it. */
+def verifySetpoints() {
+    BigDecimal target = state.lastAppliedSetpoint as BigDecimal
+    if (target == null) return
+
+    // A deliberate manual change supersedes what we last applied, so leave it alone. While a
+    // window is open the window action is the thing we last applied, so that still gets checked.
+    if (state.isOverridden && !state.windowOpen) {
+        logDebug "Skipping setpoint verification - room is overridden"
+        return
+    }
+
+    def stale = trvDevices?.findAll { trv ->
+        def actual = trv.currentValue("heatingSetpoint")
+        actual == null || ((actual as BigDecimal) - target).abs() > SETPOINT_TOLERANCE
+    }
+    if (!stale) {
+        if (state.setpointRetries) logInfo "All valves confirmed at ${target}°C"
+        state.setpointRetries = 0
+        return
+    }
+
+    if (state.setpointRetries >= SETPOINT_MAX_RETRIES) {
+        logWarn "Gave up after ${SETPOINT_MAX_RETRIES} attempts: " +
+                stale.collect { "${it.displayName} is ${it.currentValue('heatingSetpoint')}°C, wanted ${target}°C" }.join("; ")
+        state.setpointRetries = 0
+        return
+    }
+
+    state.setpointRetries = (state.setpointRetries ?: 0) + 1
+    logWarn "Resending ${target}°C to ${stale.collect { it.displayName }.join(', ')} (attempt ${state.setpointRetries})"
+
+    state.applyingSetpoint = true
+    stale.each { trv ->
+        try {
+            trv.setHeatingSetpoint(target)
+        } catch (e) {
+            logWarn "Failed to set ${trv.displayName}: ${e.message}"
+        }
+    }
+    runIn(5, clearApplyingFlag)
+    runIn(SETPOINT_VERIFY_DELAY, verifySetpoints)
 }
 
 def notifyParentTemperature() {
@@ -369,19 +425,27 @@ def handleWindowState(boolean isOpen, String source) {
             state.pendingSetpoint = state.lastAppliedSetpoint
         }
 
-        // Apply window action
-        trvDevices?.each { trv ->
-            switch (windowAction) {
-                case "off":
-                    trv.off()
-                    break
-                case "minimum":
-                    trv.setHeatingSetpoint(4)
-                    break
-                case "frost":
-                    trv.setHeatingSetpoint(7)
-                    break
-            }
+        // Apply window action. This has to go through setRoomTemperature: writing the
+        // setpoint directly left setpointHandler free to read our own change as a manual
+        // override, and skipped the resend that catches valves which drop the command.
+        switch (windowAction) {
+            case "off":
+                state.applyingSetpoint = true
+                trvDevices?.each { trv ->
+                    try {
+                        trv.off()
+                    } catch (e) {
+                        logWarn "Failed to turn off ${trv.displayName}: ${e.message}"
+                    }
+                }
+                runIn(5, clearApplyingFlag)
+                break
+            case "frost":
+                setRoomTemperature(7)
+                break
+            default:                      // "minimum"
+                setRoomTemperature(4)
+                break
         }
 
         // Notify parent
