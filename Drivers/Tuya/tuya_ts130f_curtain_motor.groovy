@@ -32,7 +32,7 @@ import groovy.transform.Field
 
 // ==================== Constants ====================
 
-@Field static final String DRIVER_VERSION = "1.0.0"
+@Field static final String DRIVER_VERSION = "1.2.0"
 
 // Cluster IDs
 @Field static final int CLUSTER_BASIC = 0x0000
@@ -42,6 +42,17 @@ import groovy.transform.Field
 @Field static final int ATTR_CURRENT_POSITION_LIFT = 0x0008   // Current position (0-100, 0=open, 100=closed)
 @Field static final int ATTR_CONFIG_STATUS = 0x0007
 @Field static final int ATTR_MODE = 0x0017
+
+// Tuya manufacturer-specific attributes on the Window Covering cluster.
+// Same IDs/semantics zigbee2mqtt and the ZHA quirk use for TS130F.
+@Field static final int ATTR_TUYA_MOVING_STATE = 0xF000       // enum8:  0=up, 1=stop, 2=down
+@Field static final int ATTR_TUYA_CALIBRATION = 0xF001         // enum8:  0=calibration ON, 1=calibration OFF
+@Field static final int ATTR_TUYA_MOTOR_REVERSAL = 0xF002      // enum8:  0=normal, 1=reversed
+@Field static final int ATTR_TUYA_CALIBRATION_TIME = 0xF003    // uint16: full travel time in 0.1s units
+
+// ZCL data types
+@Field static final int DT_ENUM8 = 0x30
+@Field static final int DT_UINT16 = 0x21
 
 // Window Covering Cluster Commands
 @Field static final int CMD_UP_OPEN = 0x00
@@ -67,6 +78,7 @@ metadata {
         attribute "moving", "enum", ["stopped", "opening", "closing"]
         attribute "motorReversal", "enum", ["normal", "reversed"]
         attribute "calibrationMode", "enum", ["off", "on"]
+        attribute "calibrationTime", "number"
         attribute "driverVersion", "string"
 
         // Commands
@@ -75,6 +87,8 @@ metadata {
                                       description: "Reverse motor direction"]]
         command "startCalibration"
         command "stopCalibration"
+        command "setCalibrationTime", [[name: "seconds*", type: "NUMBER",
+                                        description: "Full travel time in seconds (0-655). Overwrites the motor's stored travel time."]]
         command "setDefaultOpenPosition", [[name: "position*", type: "NUMBER", description: "Default position when opening (0-100)"]]
         command "setDefaultClosePosition", [[name: "position*", type: "NUMBER", description: "Default position when closing (0-100)"]]
 
@@ -137,6 +151,17 @@ metadata {
         input name: "closedThreshold", type: "number", title: "Closed threshold (%)",
               description: "Position at or below this is considered 'closed'",
               defaultValue: 1, range: "0..99"
+
+        input name: "closedLimit", type: "number", title: "Closed travel limit (%)",
+              description: "Where the motor should stop when fully closed, on the motor's own scale. " +
+                           "Raise above 0 if the shade over-runs at the bottom (pools on the floor).",
+              defaultValue: 0, range: "0..99"
+
+        input name: "openLimit", type: "number", title: "Open travel limit (%)",
+              description: "Where the motor should stop when fully open, on the motor's own scale. " +
+                           "Lower below 100 if the shade over-runs at the top. " +
+                           "Cannot make the motor travel FURTHER than its mechanical limit.",
+              defaultValue: 100, range: "1..100"
     }
 }
 
@@ -151,7 +176,7 @@ def updated() {
     log.info "Tuya TS130F Curtain Motor updated"
     unschedule()
 
-    if (logEnable) runIn(1800, logsOff)
+    if (logEnable) runIn(86400, logsOff)   // debug logging switches itself off after 24 h
 
     sendEvent(name: "driverVersion", value: DRIVER_VERSION)
 }
@@ -162,7 +187,13 @@ def initialize() {
     sendEvent(name: "driverVersion", value: DRIVER_VERSION)
     sendEvent(name: "moving", value: "stopped")
 
-    runIn(5, configure)
+    runIn(5, "delayedConfigure")
+}
+
+// runIn() discards a method's return value, so scheduled configuration has to
+// push its commands out explicitly rather than returning them.
+def delayedConfigure() {
+    sendZigbeeCommands(configure())
 }
 
 // ==================== Configuration ====================
@@ -180,7 +211,7 @@ def configure() {
     cmds += zigbee.configureReporting(CLUSTER_WINDOW_COVERING, ATTR_CURRENT_POSITION_LIFT, 0x20, 0, 3600, 1)
     cmds += "delay 500"
 
-    // Initial refresh
+    // Initial refresh (includes the Tuya calibration/reversal attributes)
     cmds += refresh()
 
     return cmds
@@ -191,6 +222,9 @@ def refresh() {
 
     def cmds = []
     cmds += zigbee.readAttribute(CLUSTER_WINDOW_COVERING, ATTR_CURRENT_POSITION_LIFT)
+    cmds += zigbee.readAttribute(CLUSTER_WINDOW_COVERING, ATTR_TUYA_CALIBRATION)
+    cmds += zigbee.readAttribute(CLUSTER_WINDOW_COVERING, ATTR_TUYA_MOTOR_REVERSAL)
+    cmds += zigbee.readAttribute(CLUSTER_WINDOW_COVERING, ATTR_TUYA_CALIBRATION_TIME)
 
     return cmds
 }
@@ -228,12 +262,13 @@ def setPosition(position) {
     // Invert if needed (for cinema screens)
     Integer zigbeePos = invertPosition ? (100 - pos) : pos
 
-    // Zigbee Window Covering uses 0=open, 100=closed
-    // But we're sending lift percentage where 0=fully open, 100=fully closed
-    // Some devices interpret this differently, so we may need to invert
-    Integer cmdPos = 100 - zigbeePos  // Standard ZCL: 0% = closed, 100% = open
+    // Squeeze the request into the usable part of the motor's travel
+    Integer motorPos = toMotorScale(zigbeePos)
 
-    logInfo "Setting position to ${pos}% (zigbee: ${cmdPos}%)"
+    // ZCL GoToLiftPercentage: 0% = fully open (lift up), 100% = fully closed
+    Integer cmdPos = 100 - motorPos
+
+    logInfo "Setting position to ${pos}% (motor: ${motorPos}%, zigbee lift: ${cmdPos}%)"
 
     // Determine direction for moving status
     def currentPos = device.currentValue("position") ?: 50
@@ -317,34 +352,64 @@ def push(buttonNumber) {
 def setMotorReversal(String reversal) {
     logInfo "Setting motor reversal to: ${reversal}"
 
-    // This uses Tuya-specific cluster command
-    // The actual implementation depends on the specific device firmware
-    def value = (reversal == "reversed") ? 0x01 : 0x00
+    // Tuya-specific attribute 0xF002 on the window covering cluster: 0=normal, 1=reversed.
+    // The standard ZCL Mode attribute (0x0017) is rejected as read-only by TS130F firmware.
+    Integer value = (reversal == "reversed") ? 0x01 : 0x00
 
-    // Try standard window covering mode attribute
     def cmds = []
-    cmds += zigbee.writeAttribute(CLUSTER_WINDOW_COVERING, ATTR_MODE, 0x18, value)
+    cmds += zigbee.writeAttribute(CLUSTER_WINDOW_COVERING, ATTR_TUYA_MOTOR_REVERSAL, DT_ENUM8, value)
+    cmds += "delay 500"
+    cmds += zigbee.readAttribute(CLUSTER_WINDOW_COVERING, ATTR_TUYA_MOTOR_REVERSAL)
 
-    sendEvent(name: "motorReversal", value: reversal)
     sendZigbeeCommands(cmds)
 }
 
 def startCalibration() {
-    logInfo "Starting calibration mode"
-    sendEvent(name: "calibrationMode", value: "on")
+    logInfo "Entering calibration mode"
 
-    // Calibration typically involves:
-    // 1. Fully open the blind manually
-    // 2. Start calibration
-    // 3. Send close command
-    // 4. Stop calibration when fully closed
+    // Tuya-specific attribute 0xF001: 0 = calibration ON, 1 = calibration OFF.
+    def cmds = []
+    cmds += zigbee.writeAttribute(CLUSTER_WINDOW_COVERING, ATTR_TUYA_CALIBRATION, DT_ENUM8, 0x00)
+    cmds += "delay 500"
+    cmds += zigbee.readAttribute(CLUSTER_WINDOW_COVERING, ATTR_TUYA_CALIBRATION)
 
-    logWarn "Calibration: First fully open the blind/screen manually, then press close"
+    logWarn "Calibration started. Now: (1) run the screen to its FULLY OPEN limit and let it stop, " +
+            "(2) send Close and let it run all the way to the FULLY CLOSED limit without stopping it, " +
+            "(3) then press stopCalibration. The motor stores the measured travel time."
+
+    sendZigbeeCommands(cmds)
 }
 
 def stopCalibration() {
-    logInfo "Stopping calibration mode"
-    sendEvent(name: "calibrationMode", value: "off")
+    logInfo "Leaving calibration mode"
+
+    def cmds = []
+    cmds += zigbee.writeAttribute(CLUSTER_WINDOW_COVERING, ATTR_TUYA_CALIBRATION, DT_ENUM8, 0x01)
+    cmds += "delay 500"
+    cmds += zigbee.readAttribute(CLUSTER_WINDOW_COVERING, ATTR_TUYA_CALIBRATION)
+    cmds += "delay 500"
+    cmds += zigbee.readAttribute(CLUSTER_WINDOW_COVERING, ATTR_TUYA_CALIBRATION_TIME)
+
+    sendZigbeeCommands(cmds)
+}
+
+def setCalibrationTime(seconds) {
+    BigDecimal secs = seconds as BigDecimal
+    if (secs < 0G) secs = 0G
+    if (secs > 655G) secs = 655G
+
+    // 0xF003 stores the full-travel time in tenths of a second.
+    // setScale rather than Math.round: BigDecimal makes Math.round ambiguous in Groovy.
+    Integer tenths = (secs * 10G).setScale(0, java.math.RoundingMode.HALF_UP).intValue()
+
+    logInfo "Setting calibration (full travel) time to ${secs}s"
+
+    def cmds = []
+    cmds += zigbee.writeAttribute(CLUSTER_WINDOW_COVERING, ATTR_TUYA_CALIBRATION_TIME, DT_UINT16, tenths)
+    cmds += "delay 500"
+    cmds += zigbee.readAttribute(CLUSTER_WINDOW_COVERING, ATTR_TUYA_CALIBRATION_TIME)
+
+    sendZigbeeCommands(cmds)
 }
 
 def setDefaultOpenPosition(position) {
@@ -359,6 +424,54 @@ def setDefaultClosePosition(position) {
     pos = [[pos, 100].min(), 0].max()
     logInfo "Setting default close position to ${pos}%"
     device.updateSetting("defaultClosePosition", [value: pos, type: "number"])
+}
+
+// ==================== Travel Limits ====================
+//
+// The TS130F reports and accepts positions on the motor's own scale, which runs
+// between whatever mechanical stops the motor has. When those stops do not line
+// up with the real window, the usable travel is only a sub-range of 0-100%.
+// These two helpers map Hubitat's 0-100% onto [closedLimit .. openLimit] so the
+// user-facing scale stays a full, linear 0-100 over the range that is actually
+// useful.
+
+private Integer travelClosedLimit() {
+    Integer v = (closedLimit == null ? 0 : closedLimit) as Integer
+    if (v < 0) v = 0
+    if (v > 99) v = 99
+    return v
+}
+
+private Integer travelOpenLimit() {
+    Integer v = (openLimit == null ? 100 : openLimit) as Integer
+    if (v < 1) v = 1
+    if (v > 100) v = 100
+    // Guard against an inverted or empty range from bad settings.
+    Integer lo = travelClosedLimit()
+    if (v <= lo) v = lo + 1
+    return v
+}
+
+// Hubitat 0-100% -> motor scale
+private Integer toMotorScale(Integer userPos) {
+    Integer lo = travelClosedLimit()
+    Integer hi = travelOpenLimit()
+    BigDecimal scaled = lo + ((userPos as BigDecimal) * (hi - lo) / 100G)
+    Integer out = scaled.setScale(0, java.math.RoundingMode.HALF_UP).intValue()
+    if (out < 0) out = 0
+    if (out > 100) out = 100
+    return out
+}
+
+// Motor scale -> Hubitat 0-100%
+private Integer fromMotorScale(Integer motorPos) {
+    Integer lo = travelClosedLimit()
+    Integer hi = travelOpenLimit()
+    BigDecimal scaled = ((motorPos - lo) as BigDecimal) * 100G / ((hi - lo) as BigDecimal)
+    Integer out = scaled.setScale(0, java.math.RoundingMode.HALF_UP).intValue()
+    if (out < 0) out = 0
+    if (out > 100) out = 100
+    return out
 }
 
 // ==================== Parse ====================
@@ -415,6 +528,9 @@ private List handleWindowCoveringCluster(String attrId, String value) {
             // Convert to our standard where 100=open, 0=closed
             Integer pos = 100 - rawPos
 
+            // Undo the travel-limit squeeze so the user sees a full 0-100 scale
+            pos = fromMotorScale(pos)
+
             // Apply inversion if configured
             if (invertPosition) {
                 pos = 100 - pos
@@ -445,6 +561,31 @@ private List handleWindowCoveringCluster(String attrId, String value) {
 
             logInfo "Position: ${pos}% (${shadeState})"
             break
+
+        case "F000":  // Tuya moving state: 0=up, 1=stop, 2=down
+            Integer ms = Integer.parseInt(value, 16)
+            String moveState = (ms == 0) ? "opening" : (ms == 2) ? "closing" : "stopped"
+            events << createEvent(name: "moving", value: moveState)
+            logDebug "Moving state: ${moveState}"
+            break
+
+        case "F001":  // Tuya calibration mode: 0=on, 1=off
+            String calState = (Integer.parseInt(value, 16) == 0) ? "on" : "off"
+            events << createEvent(name: "calibrationMode", value: calState)
+            logInfo "Calibration mode: ${calState}"
+            break
+
+        case "F002":  // Tuya motor reversal: 0=normal, 1=reversed
+            String rev = (Integer.parseInt(value, 16) == 0) ? "normal" : "reversed"
+            events << createEvent(name: "motorReversal", value: rev)
+            logInfo "Motor reversal: ${rev}"
+            break
+
+        case "F003":  // Tuya calibration time, in 0.1s units
+            BigDecimal calSecs = (Integer.parseInt(value, 16) as BigDecimal) / 10
+            events << createEvent(name: "calibrationTime", value: calSecs, unit: "s")
+            logInfo "Calibration (full travel) time: ${calSecs}s"
+            break
     }
 
     return events
@@ -470,15 +611,14 @@ void sendZigbeeCommands(def cmds) {
     if (cmds == null) return
 
     List cmdList = (cmds instanceof List) ? cmds.flatten() : [cmds]
-    cmdList = cmdList.findAll { it != null && it != "" && !it.toString().startsWith("delay") }
+    cmdList = cmdList.findAll { it != null && it.toString() != "" }.collect { it.toString() }
 
     if (cmdList.isEmpty()) return
 
+    // HubMultiAction honours "delay N" entries; HubAction would choke on them,
+    // and dropping them fires the writes faster than the device can absorb.
     logDebug "Sending ${cmdList.size()} command(s)"
-    cmdList.each { cmd ->
-        def hubAction = new hubitat.device.HubAction(cmd.toString(), hubitat.device.Protocol.ZIGBEE)
-        sendHubCommand(hubAction)
-    }
+    sendHubCommand(new hubitat.device.HubMultiAction(cmdList, hubitat.device.Protocol.ZIGBEE))
 }
 
 // ==================== Logging ====================
