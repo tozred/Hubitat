@@ -18,6 +18,7 @@ from datetime import datetime, timezone
 # Hours without any sign of life before a device is reported
 QUIET_BATTERY_H = 48     # battery sensors/buttons check in at least daily
 QUIET_MAINS_H = 72       # some mains drivers only report on change
+QUIET_MAINS_SENSOR_H = 24  # a powered sensor reports readings, not just state changes
 QUIET_LAN_H = 7 * 24     # LAN integrations that should see regular use (Nuki)
 LOW_BATTERY_PCT = 15
 NOISY_LOG_LINES = 200    # WARN/ERROR lines from one source within the log buffer
@@ -25,6 +26,12 @@ NOISY_LOG_LINES = 200    # WARN/ERROR lines from one source within the log buffe
 # Drivers that legitimately stay silent (virtual, groups, phones, media players, IR blasters)
 IGNORED_TYPES = ("Virtual", "Group", "Mobile App Device", "AirPlay", "SwitchBot")
 LAN_WATCHED_TYPES = ("Nuki Smart Lock", "Nuki Opener")
+
+# Devices deliberately out of service. Listed in the report so they are not forgotten,
+# but never counted as a problem. Remove the entry when the device goes back in use.
+PARKED = {
+    "Fan": "stored away for winter (since 2026-09-20)",
+}
 
 
 def fetch(hub, path, timeout=12):
@@ -34,6 +41,30 @@ def fetch(hub, path, timeout=12):
 
 def parse_ts(value):
     return datetime.strptime(value, "%Y-%m-%dT%H:%M:%S%z") if value else None
+
+
+def last_real_report(hub, device_id):
+    """Newest event the device itself produced, or None.
+
+    lastActivity is not trustworthy on its own: saving a preference re-runs the driver's
+    initialize(), which stamps lastActivity and files "Initialized" events, so a device that
+    dropped off the mesh weeks ago looks alive right after any settings change. Commands the
+    hub sent (digital, command-*) say nothing about the device either.
+    """
+    try:
+        events = fetch(hub, f"device/eventsJson/{device_id}?max=30")
+    except OSError:
+        return None
+    for event in events:                       # newest first
+        if event.get("digital") or str(event.get("name", "")).startswith("command-"):
+            continue
+        if event.get("descriptionText") == "Initialized":
+            continue
+        try:
+            return datetime.strptime(event["date"], "%Y-%m-%dT%H:%M:%S.%f%z")
+        except (KeyError, ValueError):
+            continue
+    return None
 
 
 def flatten(nodes):
@@ -54,26 +85,34 @@ def check(hub):
     zigbee = {d["id"]: d for d in fetch(hub, "hub/zigbeeDetails/json").get("devices", [])}
     hub_data = fetch(hub, "hub2/hubData")
 
-    quiet, low_battery = [], []
+    quiet, low_battery, parked = [], [], []
     for dev in devices:
         if dev.get("disabled") or any(t in dev["type"] for t in IGNORED_TYPES):
+            continue
+        if dev["name"] in PARKED:
+            parked.append((dev["name"], PARKED[dev["name"]]))
             continue
         states = {s["key"]: s["value"] for s in dev.get("currentStates", [])}
         has_battery = "battery" in states
 
         if dev.get("isZigbee"):
-            limit = QUIET_BATTERY_H if has_battery else QUIET_MAINS_H
+            if has_battery:
+                limit = QUIET_BATTERY_H
+            elif any(t in dev["type"] for t in ("Presence", "Motion", "Sensor")):
+                limit = QUIET_MAINS_SENSOR_H
+            else:
+                limit = QUIET_MAINS_H
         elif dev["type"] in LAN_WATCHED_TYPES:
             limit = QUIET_LAN_H
         else:
             continue
 
-        # Mains drivers may only report on change, so radio traffic counts as life for them.
-        # A sensor that still pings the radio but produces no readings is broken, so
-        # battery devices are judged on driver events alone.
-        seen = [parse_ts(dev.get("lastActivity"))]
-        if not has_battery:
-            seen.append(parse_ts(zigbee.get(dev["id"], {}).get("lastMessage")))
+        # Either signal counts as life. Contact sensors only file an event when they actually
+        # open or close, so a quiet door can sit two days between events while still checking
+        # in over the radio; conversely sleepy devices are often missing from the Zigbee table
+        # altogether. A device that has gone dark really does go quiet on both at once.
+        seen = [last_real_report(hub, dev["id"]),
+                parse_ts(zigbee.get(dev["id"], {}).get("lastMessage"))]
         seen = [t for t in seen if t]
         hours = (now - max(seen)).total_seconds() / 3600 if seen else None
         if hours is None or hours > limit:
@@ -106,6 +145,7 @@ def check(hub):
         "lowBattery": [{"id": d["id"], "name": d["name"], "battery": int(p)} for p, d in sorted(low_battery)],
         "hubAlerts": alerts,
         "noisyLogs": [{"source": n, "lines": c} for n, c in noisy],
+        "parked": [{"name": n, "reason": r} for n, r in sorted(parked)],
     }
 
 
@@ -128,6 +168,9 @@ def render_hub(result):
     if result["noisyLogs"]:
         lines.append("  Warnings/errors flooding the log:")
         lines += [f"    - {n['source']}: {n['lines']} lines" for n in result["noisyLogs"]]
+    if result["parked"]:
+        lines.append("  Out of service on purpose (not a fault):")
+        lines += [f"    - {p['name']}: {p['reason']}" for p in result["parked"]]
     return "\n".join(lines)
 
 
