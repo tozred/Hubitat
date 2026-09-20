@@ -44,11 +44,14 @@ metadata {
         attribute "motionSensitivity", "enum", ["low", "medium", "high"]
         attribute "activityState", "string"
         attribute "powerOutageCount", "number"
+        attribute "parentNWK", "string"
 
         // Commands
         command "setMotionSensitivity", [[name: "sensitivity", type: "ENUM", constraints: ["low", "medium", "high"]]]
         command "setDetectionRange", [[name: "range", type: "NUMBER", description: "Range in meters (0.1 - 6.0)"]]
         command "resetPresence"
+        command "aqaraBlackMagic"
+        command "restartDevice"
 
         // Fingerprint
         fingerprint profileId: "0104", endpointId: "01",
@@ -118,6 +121,7 @@ metadata {
 def installed() {
     log.info "Aqara FP1E Presence Sensor installed"
     initialize()
+    aqaraBlackMagic()
 }
 
 def updated() {
@@ -134,37 +138,50 @@ def initialize() {
     sendEvent(name: "roomState", value: "unoccupied", descriptionText: "Initialized")
 }
 
+/**
+ * The FP1E pushes its 0xFCC0 reports unsolicited: it needs no bindings and no reporting
+ * configuration, and neither zigbee-herdsman-converters nor kkossev's driver sends any.
+ * Writing to it immediately after it joins is what destabilises it, so all this does is
+ * re-assert the Aqara hub identity and then read the settings back a little later.
+ */
 def configure() {
     logInfo "Configuring FP1E..."
+    aqaraBlackMagic()
+    runIn(10, "refreshDeferred")
+    return []
+}
 
-    def cmds = []
+def refreshDeferred() {
+    sendZigbeeCommands(refresh())
+}
 
-    // Write magic byte to enable third-party hub (send twice for reliability)
-    cmds += zigbee.writeAttribute(0xFCC0, 0x0009, 0x20, 0x01, [mfgCode: AQARA_MFG_CODE])
-    cmds += "delay 500"
-    cmds += zigbee.writeAttribute(0xFCC0, 0x0009, 0x20, 0x01, [mfgCode: AQARA_MFG_CODE])
-    cmds += "delay 500"
+/**
+ * Aqara end devices expect an Aqara hub and drift off the mesh when they do not find one.
+ * Answering their ZDO Node Descriptor probe with a coordinator descriptor carrying Lumi's
+ * manufacturer code (0x115F) is what keeps them joined - kkossev's drivers call this the
+ * "Aqara black magic". Re-sent on every device announcement so it survives a rejoin or a
+ * change of parent router.
+ *
+ * Node descriptor bytes: 00 40 = coordinator, 2.4 GHz; 8F = FFD, mains, rx-on-when-idle;
+ * 5F 11 = manufacturer 0x115F little-endian; 52 / 52 00 / 41 2C / 52 00 / 00 = buffer and
+ * transfer sizes, server mask, descriptor capability.
+ */
+def aqaraBlackMagic() {
+    logDebug "Asserting Aqara hub identity"
+    sendZigbeeCommands([
+        "he raw 0x${device.deviceNetworkId} 0 0 0x8002 {40 00 00 00 00 40 8f 5f 11 52 52 00 41 2c 52 00 00} {0x0000}",
+        "delay 200"
+    ])
+}
 
-    // Bind FCC0 cluster for attribute reports
-    cmds += "zdo bind 0x${device.deviceNetworkId} 0x01 0x01 0xFCC0 {${device.zigbeeId}} {}"
-    cmds += "delay 500"
+def restartDevice() {
+    logInfo "Restarting device"
+    sendZigbeeCommands(zigbee.writeAttribute(0xFCC0, 0x00E8, 0x10, 0x00, [mfgCode: AQARA_MFG_CODE]))
+}
 
-    // Configure reporting for presence (0x0142) - min 0s, max 1hr
-    cmds += zigbee.configureReporting(0xFCC0, 0x0142, 0x20, 0, 3600, 1, [mfgCode: AQARA_MFG_CODE])
-    cmds += "delay 300"
-
-    // Configure reporting for movement state (0x0160) - this changes frequently
-    cmds += zigbee.configureReporting(0xFCC0, 0x0160, 0x20, 0, 3600, 1, [mfgCode: AQARA_MFG_CODE])
-    cmds += "delay 300"
-
-    // Configure reporting for target distance (0x015F) - Uint32
-    cmds += zigbee.configureReporting(0xFCC0, 0x015F, 0x23, 1, 300, 10, [mfgCode: AQARA_MFG_CODE])
-    cmds += "delay 300"
-
-    // Read current settings
-    cmds += refresh()
-
-    return cmds
+void sendZigbeeCommands(List<String> cmds) {
+    if (!cmds) return
+    sendHubCommand(new hubitat.device.HubMultiAction(cmds, hubitat.device.Protocol.ZIGBEE))
 }
 
 def refresh() {
@@ -181,8 +198,8 @@ def refresh() {
     // FCC0 attributes
     cmds += zigbee.readAttribute(0xFCC0, 0x0142, [mfgCode: AQARA_MFG_CODE])  // Presence
     cmds += "delay 200"
-    cmds += zigbee.readAttribute(0xFCC0, 0x0143, [mfgCode: AQARA_MFG_CODE])  // Activity
-    cmds += "delay 200"
+    // 0x0143 (presence_event) is FP1-only; the FP1E does not implement it and answers with
+    // UNSUPPORTED_ATTRIBUTE, so it is deliberately not read here.
     cmds += zigbee.readAttribute(0xFCC0, 0x010C, [mfgCode: AQARA_MFG_CODE])  // Sensitivity
     cmds += "delay 200"
     cmds += zigbee.readAttribute(0xFCC0, 0x015B, [mfgCode: AQARA_MFG_CODE])  // Detection range
@@ -205,8 +222,17 @@ def setMotionSensitivity(String sensitivity) {
         return
     }
 
+    if (device.currentValue("motionSensitivity") == sensitivity) {
+        logInfo "Motion sensitivity already ${sensitivity}, not resending"
+        return []
+    }
+
+    // Read the setting straight back: the FP1E acknowledges a write it did not apply, which
+    // otherwise leaves the driver showing a setting the sensor is not actually using.
     logInfo "Setting motion sensitivity to ${sensitivity} (${value})"
-    return zigbee.writeAttribute(0xFCC0, 0x010C, 0x20, value, [mfgCode: AQARA_MFG_CODE])
+    return zigbee.writeAttribute(0xFCC0, 0x010C, 0x20, value, [mfgCode: AQARA_MFG_CODE]) +
+           ["delay 500"] +
+           zigbee.readAttribute(0xFCC0, 0x010C, [mfgCode: AQARA_MFG_CODE])
 }
 
 def setDetectionRange(BigDecimal rangeMeters) {
@@ -216,8 +242,16 @@ def setDetectionRange(BigDecimal rangeMeters) {
     }
 
     def rangeCm = (rangeMeters * 100).toInteger()
+    if (device.currentValue("detectionRange") == rangeMeters) {
+        logInfo "Detection range already ${rangeMeters}m, not resending"
+        return []
+    }
+
+    // 0x015B is a uint32 (0x23). Writing it as uint16 made the device reject the write.
     logInfo "Setting detection range to ${rangeMeters}m (${rangeCm}cm)"
-    return zigbee.writeAttribute(0xFCC0, 0x015B, 0x21, rangeCm, [mfgCode: AQARA_MFG_CODE])
+    return zigbee.writeAttribute(0xFCC0, 0x015B, 0x23, rangeCm, [mfgCode: AQARA_MFG_CODE]) +
+           ["delay 500"] +
+           zigbee.readAttribute(0xFCC0, 0x015B, [mfgCode: AQARA_MFG_CODE])
 }
 
 def resetPresence() {
@@ -236,7 +270,9 @@ def parse(String description) {
     try {
         def descMap = zigbee.parseDescriptionAsMap(description)
 
-        if (description.startsWith("read attr -")) {
+        if (descMap?.profileId == "0000") {
+            parseZdo(descMap)
+        } else if (description.startsWith("read attr -")) {
             parseReadAttr(descMap)
         } else if (description.startsWith("catchall:")) {
             parseCatchall(descMap)
@@ -262,6 +298,49 @@ private void parseReadAttr(Map descMap) {
         case "FCC0":  // Aqara
             parseAqaraCluster(attrId, value, descMap)
             break
+    }
+}
+
+/**
+ * ZDO traffic. Two of these are what keep the sensor on the mesh, so they are answered here
+ * rather than left to the platform: the node descriptor probe (see aqaraBlackMagic) and the
+ * end-device timeout request, which the FP1E sends to confirm its parent still wants it.
+ */
+private void parseZdo(Map descMap) {
+    List data = descMap.data as List
+    String seqNum = data ? (data[0] as String).padLeft(2, "0") : "00"
+
+    switch (descMap.clusterId) {
+        case "0002":   // Node_Desc_req
+            if (data == null || data.size() < 3) {
+                logDebug "Malformed Node_Desc_req: ${data}"
+                break
+            }
+            // TSN, then the NWK address of interest, little-endian. Only the coordinator's
+            // own descriptor is answered; anything else is left to the hub.
+            String nwkRequested = data[1..2].collect { (it as String).padLeft(2, "0").toUpperCase() }.join(" ")
+            if (nwkRequested != "00 00") {
+                logDebug "Node_Desc_req for NWK ${nwkRequested}; ignored"
+                break
+            }
+            logDebug "Answering Node_Desc_req with the Aqara hub descriptor (TSN ${seqNum})"
+            sendZigbeeCommands([
+                "he raw ${device.deviceNetworkId} 0 0 0x8002 {${seqNum} 00 ${nwkRequested} 00 40 8F 5F 11 52 52 00 41 2C 52 00 00} {0x0000}"
+            ])
+            break
+
+        case "0013":   // Device_annce - it just (re)joined, so assert the hub identity again
+            logInfo "Device announced itself on the mesh"
+            aqaraBlackMagic()
+            break
+
+        case "0036":   // End Device Timeout Request
+            logDebug "Answering end device timeout request (TSN ${seqNum})"
+            sendZigbeeCommands(["he raw ${device.deviceNetworkId} 0 0 0x8036 {${seqNum} 00 01} {0x0000}"])
+            break
+
+        default:
+            logDebug "ZDO cluster 0x${descMap.clusterId}, data=${data}"
     }
 }
 
@@ -498,6 +577,14 @@ private void parseF7TLVData(String hexData) {
                     sendEvent(name: "motion", value: "active", descriptionText: "Motion detected")
                     scheduleMotionInactive()
                 }
+                break
+            case 0x0A:  // Parent router. Worth surfacing: an Aqara end device parked on an
+                        // unsuitable router is the usual reason one goes silent after hours.
+                def parent = String.format("%04X", (value as int) & 0xFFFF)
+                if (device.currentValue("parentNWK") != parent) {
+                    logInfo "Parent router is now ${parent}"
+                }
+                sendEvent(name: "parentNWK", value: parent)
                 break
             case 0x65:  // Unknown - maybe related to detection?
                 logDebug "F7 Tag 0x65 (unknown): ${value}"
