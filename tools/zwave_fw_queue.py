@@ -6,8 +6,12 @@ This uses /hub/zwave/deviceFirmware/{devices,details,files,start,progress}, the 
 kept a per-session state that wedged after the first update.
 
 The hub runs one transfer at a time, so nodes are done in sequence: wait for any running
-transfer to end, start the next, then poll until it finishes. Transfers can be slow (hours),
-so the timeout is generous and progress is only logged when it changes.
+transfer to end, start the next, then poll until it finishes. Progress is logged only when it
+changes. Written for the Z-Wave JS stack (Settings > Z-Wave Details > Switch to ZWaveJS), which
+transfers one Shelly Wave relay in ~15 minutes; the legacy stack stalled indefinitely instead.
+
+Note: switching a hub to Z-Wave JS resets the radio region (EU became US here), which makes
+every device unreachable until it is set back and the hub is rebooted.
 
 Usage: zwave_fw_queue.py --hub http://192.168.1.111 --file NAME.gbl 7 9
 """
@@ -17,9 +21,9 @@ import sys
 import time
 import urllib.request
 
-POLL_S = 60
-STALL_LIMIT_S = 90 * 60      # no change at all for this long -> give up on that node
-MAX_NODE_S = 8 * 60 * 60     # absolute cap per node
+POLL_S = 30
+STALL_LIMIT_S = 20 * 60      # no change at all for this long -> give up on that node
+MAX_NODE_S = 90 * 60         # absolute cap per node (Z-Wave JS does one in ~15 min)
 
 
 def log(msg):
@@ -58,8 +62,16 @@ class Hub:
         return (d.get("targets") or [{}])[0].get("version")
 
 
+ACTIVE_STAGES = ("SENDING", "PROCESS", "TRANSFERRING", "STARTING", "FLASHING", "VERSION_CC_GET")
+
+
 def active(p):
-    return bool(p) and p.get("stage") not in (None, "", "IDLE", "COMPLETE", "FAILED", "ABORTED")
+    """True while a transfer is running.
+
+    Z-Wave JS uses SENDING/PROCESS; the legacy stack used TRANSFERRING. When the device
+    reboots to install, the endpoint answers NOTFOUND - that means finished, not running.
+    """
+    return bool(p) and p.get("stage") in ACTIVE_STAGES
 
 
 def wait_for_free(hub, nodes, limit=MAX_NODE_S):
