@@ -5,6 +5,7 @@
  *
  *  A driver for the Sonoff SNZB-04P door/window contact sensor with tamper detection.
  *
+ *  Version: 1.0.2 - Settings saves no longer overwrite the real contact state
  *  Version: 1.0.1 - Fixed tamper not auto-clearing when device sends clear signal
  *
  *  Clusters:
@@ -95,8 +96,15 @@ def updated() {
 }
 
 def initialize() {
-    sendEvent(name: "contact", value: "closed", descriptionText: "Initialized")
-    sendEvent(name: "tamper", value: "clear", descriptionText: "Initialized")
+    // Seed values for a brand-new device only. This also runs on every settings save, and
+    // forcing "closed" there overwrote the real window state: an open window was reported
+    // shut, and heating zones watching the sensor resumed heating.
+    if (device.currentValue("contact") == null) {
+        sendEvent(name: "contact", value: "closed", descriptionText: "Initialized")
+    }
+    if (device.currentValue("tamper") == null) {
+        sendEvent(name: "tamper", value: "clear", descriptionText: "Initialized")
+    }
 }
 
 def configure() {

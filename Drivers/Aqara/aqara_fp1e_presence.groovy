@@ -136,9 +136,17 @@ def updated() {
 def initialize() {
     state.lastDistance = 0
     state.lastDistanceTime = 0
-    sendEvent(name: "presence", value: "not present", descriptionText: "Initialized")
-    sendEvent(name: "motion", value: "inactive", descriptionText: "Initialized")
-    sendEvent(name: "roomState", value: "unoccupied", descriptionText: "Initialized")
+    // Seed values for a brand-new device only. This also runs on every settings save, and
+    // forcing "not present" there cleared a real occupancy until the sensor next reported.
+    if (device.currentValue("presence") == null) {
+        sendEvent(name: "presence", value: "not present", descriptionText: "Initialized")
+    }
+    if (device.currentValue("motion") == null) {
+        sendEvent(name: "motion", value: "inactive", descriptionText: "Initialized")
+    }
+    if (device.currentValue("roomState") == null) {
+        sendEvent(name: "roomState", value: "unoccupied", descriptionText: "Initialized")
+    }
 }
 
 /**

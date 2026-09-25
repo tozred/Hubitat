@@ -69,7 +69,7 @@ Built from the `SWV` definition in Koenkk/zigbee-herdsman-converters (`src/devic
 
 **Supported Models:** SWV-BSP, SWV-NH, and Hydro SWV-ZFE / ZFU / ZNE / ZNU
 
-**Note:** the two families are not just cosmetically different — the eWeLink custom cluster
+**Note:** the two families are not just cosmetically different: the eWeLink custom cluster
 (`0xFC11`) encodes its numerics **little-endian** on SWV BSP/NH and **big-endian** on the
 Hydro models. The driver picks the right one from the model string. Irrigation plans, rain
 delay, seasonal adjustment and the 30-day history are not implemented yet.
@@ -231,7 +231,7 @@ Driver for the Aqara FP1E mmWave radar human presence detector.
 **Why this device keeps dropping off the mesh**
 
 The common complaint about the FP1E on Hubitat is that it pairs, works for a while, then
-goes silent — often with one-way comms, where the hub still receives its reports but the
+goes silent, often with one-way comms, where the hub still receives its reports but the
 device ignores anything sent to it.
 
 The cause is that Aqara end devices expect to be talking to an Aqara hub. This driver
@@ -255,7 +255,7 @@ With the handshake in place the join is usually straightforward, but if it fails
 1. Install this driver **first**, so it is available when the device joins.
 2. Settings > Zigbee Details > **Rebuild network**, and run it **twice**.
 3. Devices > **Add device** > Zigbee. If a plain join does not stick, use
-   **"Pair using strict Zigbee 3.0 mode"** — the FP1E's symptom (found and initialised, but
+   **"Pair using strict Zigbee 3.0 mode"**. The FP1E's symptom (found and initialised, but
    unresponsive with no attributes) is exactly the case that option is meant for.
 4. Wait until the status leaves *"Preparing network"*, then hold the FP1E reset button for
    about 5 seconds until the LED flashes 3–4 times. The pairing window is short, so be at
@@ -265,7 +265,7 @@ With the handshake in place the join is usually straightforward, but if it fails
 6. It is common for this sensor to only work on the **second** join attempt. Repeat step 3–4
    rather than deleting anything.
 
-If it still misbehaves afterwards, check the `parentNWK` attribute — an Aqara end device
+If it still misbehaves afterwards, check the `parentNWK` attribute: an Aqara end device
 parked on an unsuitable router is the usual cause of one going quiet after a few hours.
 
 ---
@@ -306,8 +306,8 @@ Driver for Tuya TS130F curtain/blind motor controllers. Ideal for cinema screens
 - Configurable default open/close positions
 - Motor reversal command
 - Calibration mode support
-- **Calibration time** — set the motor's stored full-travel time in seconds
-- **Travel limits** — separate open and closed limits on the motor's own scale, for shades
+- **Calibration time**: set the motor's stored full-travel time in seconds
+- **Travel limits**: separate open and closed limits on the motor's own scale, for shades
   that over-run their stop (for example a blind that pools on the floor at the bottom)
 - Moving state (opening / closing / stopped)
 - Button Controller compatible (Open/Close/Stop)
@@ -411,7 +411,7 @@ Unified heating control system for multiple TRVs.
 4. Add app instance and configure
 
 **Note on window sensors:** a Room Zone applies its window action when *any* of its assigned
-contact sensors opens. Assign only the sensors for windows in that room — a sensor shared
+contact sensors opens. Assign only the sensors for windows in that room. A sensor shared
 with another zone will drop this room's radiators too.
 
 ---
@@ -424,8 +424,8 @@ files in the hub's own File Manager. Everything runs on the hub, so history keep
 even when nothing else is connected and no cloud service is involved.
 
 **Files produced** (readable at `http://<hub>/local/<name>`):
-- `fridge-YYYY-MM.csv` — `timestamp,attribute,value`
-- `fridge-daily.csv` — one summary line per day: `date,minTemp,maxTemp,avgTemp,readings,minutesAbove6,compressorOnMinutes,cycles`
+- `fridge-YYYY-MM.csv`: `timestamp,attribute,value`
+- `fridge-daily.csv`: one summary line per day: `date,minTemp,maxTemp,avgTemp,readings,minutesAbove6,compressorOnMinutes,cycles`
 
 Useful for spotting a fridge that is cooling but cycling too often, or one that quietly
 drifted above 6 °C.
@@ -443,12 +443,12 @@ Hub addresses are never hardcoded: pass `--hub http://<ip>` or set `HUBITAT_HUBS
 #### `tools/hub_health_check.py`
 Daily health report: devices that have gone silent, low batteries, hub alerts and log floods.
 Prints `STATUS: OK`, `STATUS: ISSUES` or `STATUS: UNREACHABLE` as its first line, so it is
-easy to wire to a notification. Handles several hubs on different sites — a hub that does not
+easy to wire to a notification. Handles several hubs on different sites: a hub that does not
 answer is only `UNREACHABLE` when none of them do.
 
 Liveness is judged on events the device itself produced, read from
 `/device/eventsJson/<id>`, **not** on `lastActivity`. Saving a preference re-runs a driver's
-`initialize()`, which stamps `lastActivity` and files "Initialized" events — so a device that
+`initialize()`, which stamps `lastActivity` and files "Initialized" events, so a device that
 fell off the mesh weeks ago looks healthy right after any settings change. Radio traffic
 counts as life too, because contact sensors legitimately sit days between events.
 
@@ -496,17 +496,21 @@ directly.
 
 A few changes alter behaviour on devices that are already paired:
 
-- **Tuya 1-Gang Switch 1.0.2** — the voltage divisor now defaults to **1**. These switches
+- **Tuya 1-Gang Switch 1.0.2**: the voltage divisor now defaults to **1**. These switches
   report RMS voltage in whole volts and never answer the divisor query, so the previous
   default of 10 reported 23 V on a 230 V supply. If you set the divisor by hand to work
   around that, set it back to 1. The default power poll also drops from 60 s to 300 s.
-- **Sonoff TRVZB 2.3.0** — temperature accuracy was being read and written at the wrong
+- **Sonoff TRVZB 2.3.0**: temperature accuracy was being read and written at the wrong
   attribute, with the wrong type and scale; it is now `0x6011` (INT16, ×100). Adds boost,
   timer mode and smart temperature control for firmware 1.4.x.
-- **Aqara FP1E** — detection range (`0x015B`) is a uint32, not a uint16, so range writes were
+- **Aqara FP1E**: detection range (`0x015B`) is a uint32, not a uint16, so range writes were
   previously rejected by the device. Settings are now read back after writing, because this
   device acknowledges writes it did not apply.
-- **Room Zone 1.2.0** — the window action no longer writes setpoints straight to the valves.
+- **Sonoff SNZB-04P 1.0.2** and **Aqara FP1E**: saving a device's settings no longer resets
+  its state. Both drivers used to force `closed` (contact sensor) or `not present` (FP1E)
+  on every save, so an open window could be reported shut and a heating zone watching it
+  would resume heating.
+- **Room Zone 1.2.0**: the window action no longer writes setpoints straight to the valves.
   It went through a path that bypassed the app's own guard, so the app could read its own
   write back as a *manual override* and leave a radiator stuck at frost protection.
 
@@ -576,7 +580,7 @@ hubitat/
 - Compatible Zigbee devices
 - For the scripts in `tools/`: Python 3 (standard library only), and **hub login security
   switched off**, since they use the hub's local admin endpoints. If you keep hub login
-  security on, the drivers and apps still work — only the tools need it.
+  security on, the drivers and apps still work; only the tools need it.
 
 ## Credits
 

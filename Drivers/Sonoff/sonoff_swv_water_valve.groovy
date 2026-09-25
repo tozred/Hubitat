@@ -32,7 +32,7 @@
  *
  *  NOTE: built from community specs without a paired device. The standard-cluster
  *  features (valve/switch/battery/flow/leak-status) are high confidence. The 0xFC11
- *  features (auto-close, cyclic irrigation) may need one on-device tweak — see the
+ *  features (auto-close, cyclic irrigation) may need one on-device tweak: see the
  *  "useMfgCode" preference and the README test checklist.
  */
 
@@ -41,7 +41,7 @@ import groovy.transform.Field
 
 @Field static final Integer CLUSTER_POWER   = 0x0001
 @Field static final Integer CLUSTER_ONOFF   = 0x0006
-@Field static final Integer CLUSTER_TIME    = 0x000A   // genTime — Hydro reads this from the hub
+@Field static final Integer CLUSTER_TIME    = 0x000A   // genTime: Hydro reads this from the hub
 @Field static final Integer CLUSTER_FLOW    = 0x0404
 @Field static final Integer CLUSTER_EWELINK = 0xFC11
 @Field static final Integer COOLKIT_MFG     = 0x1286
@@ -93,23 +93,23 @@ metadata {
         command "openForDuration", [[name: "Seconds*", type: "NUMBER",
             description: "Open the valve, then auto-close after this many seconds (1-65535)"]]
         command "setCyclicTimedIrrigation", [
-            [name: "Cycles*",      type: "NUMBER", description: "BSP only — total cycles (0-100; 0 = stop)"],
+            [name: "Cycles*",      type: "NUMBER", description: "BSP only: total cycles (0-100; 0 = stop)"],
             [name: "Duration (s)*", type: "NUMBER", description: "Single irrigation duration, seconds (0-86400)"],
             [name: "Interval (s)*", type: "NUMBER", description: "Interval between cycles, seconds (0-86400)"]]
         command "setCyclicQuantitativeIrrigation", [
-            [name: "Cycles*",     type: "NUMBER", description: "BSP only — total cycles (0-100; 0 = stop)"],
+            [name: "Cycles*",     type: "NUMBER", description: "BSP only: total cycles (0-100; 0 = stop)"],
             [name: "Liters*",     type: "NUMBER", description: "Single irrigation capacity, liters (0-6500)"],
             [name: "Interval (s)*", type: "NUMBER", description: "Interval between cycles, seconds (0-86400)"]]
         command "stopCyclicIrrigation"
         command "logsOff"   // switch debug logging off now (also runs automatically 30 min after Save)
         command "setChildLock", [[name: "State*", type: "ENUM", constraints: ["lock", "unlock"],
-            description: "Hydro models only — lock/unlock the physical button"]]
+            description: "Hydro models only: lock/unlock the physical button"]]
 
-        // BSP/NH — confirmed against a real SWV-BSP (firmware 1.0.3) Data section.
+        // BSP/NH: confirmed against a real SWV-BSP (firmware 1.0.3) Data section.
         fingerprint profileId: "0104", endpointId: "01",
             inClusters: "0000,0001,0003,0006,0020,0404,0B05,FC57,FC11", outClusters: "000A,0019",
             manufacturer: "SONOFF", model: "SWV", deviceJoinName: "Sonoff Smart Water Valve"
-        // Hydro series — ZNE confirmed against hardware (firmware 1.0.7); ZFE pending verification.
+        // Hydro series: ZNE confirmed against hardware (firmware 1.0.7); ZFE pending verification.
         fingerprint profileId: "0104", endpointId: "01",
             inClusters: "0000,0001,0003,0006,0020,FC57,FC11", outClusters: "0003,0019",
             manufacturer: "SONOFF", model: "SWV-ZNE", deviceJoinName: "Sonoff Smart Water Valve (Hydro)"
@@ -224,7 +224,7 @@ private void ensureHomeKitChild() {
         try {
             child = addChildDevice("hubitat", "Generic Component Switch", dni,
                 [name: "Sonoff SWV HomeKit Switch", label: "${device.displayName} (Home)", isComponent: false])
-            log.info "${device.displayName}: created HomeKit switch child '${child?.displayName}' — add it in the HomeKit Integration app"
+            log.info "${device.displayName}: created HomeKit switch child '${child?.displayName}'; add it in the HomeKit Integration app"
         } catch (e) {
             log.warn "${device.displayName}: could not create HomeKit child: ${e.message}"
             return
@@ -293,7 +293,7 @@ def setChildLock(state) {
 // type byte:  [len=0x0a][count=0x00][total(1)][amount(BE u32)][interval(BE u32)].
 // We emit a raw write so the bytes go out verbatim (zigbee.writeAttribute would
 // ASCII-encode a char string and corrupt the payload). The leading 0x0a length
-// byte is the one untested detail — see the README test checklist if rejected.
+// byte is the one untested detail; see the README test checklist if rejected.
 private List<String> writeCyclicCmds(int attr, total, amount, interval, long amountMax) {
     int  t  = clampI(total, 0, 100)
     long a  = clampL(amount, 0L, amountMax)
@@ -374,13 +374,13 @@ def parse(String description) {
         // Hydro valves read genTime (0x000A) from the hub. Detect it so we can verify
         // whether Hubitat auto-answers or we must send a time response (later phase).
         if (clu == "000A") {
-            if (txtEnable) log.info "${device.displayName}: genTime request from device (Hydro time-sync) — cmd=${descMap.command}"
+            if (txtEnable) log.info "${device.displayName}: genTime request from device (Hydro time-sync), cmd=${descMap.command}"
             return
         }
 
         if (descMap.attrId != null) {
             // The SWV packs several manufacturer attributes into one FC11 frame, and
-            // Hubitat lumps the trailing bytes into descMap.value — so walk the raw
+            // Hubitat lumps the trailing bytes into descMap.value, so walk the raw
             // payload ourselves for FC11. Standard clusters are reliable via descMap.
             if (clu == "FC11") {
                 Map<String, String> attrs = parseFc11Records(descMap)
@@ -464,7 +464,7 @@ private void handleResponse(String clu, Map descMap) {
     boolean unsupported5011 = d.size() >= 3 &&
         ((d[0] == "11" && d[1] == "50" && d[2] == "86") || (d[0] == "86" && d[1] == "11" && d[2] == "50"))
     if (clu == "FC11" && unsupported5011) {
-        if (txtEnable) log.info "${device.displayName}: auto-close (0x5011) not supported by this firmware — needs 1.0.4+"
+        if (txtEnable) log.info "${device.displayName}: auto-close (0x5011) not supported by this firmware, needs 1.0.4+"
         return
     }
     if (logEnable) log.debug "response cluster=${clu} cmd=${descMap.command} data=${descMap.data}"
@@ -519,7 +519,7 @@ private void handleStatus(String hex) {
     if (txtEnable) log.info "${device.displayName}: deviceStatus=${st}, water=${water}"
 }
 
-// --- Hydro (SWV-ZFE/ZFU/ZNE/ZNU) FC11 handling — numerics are BIG-endian (opposite of BSP) ---
+// --- Hydro (SWV-ZFE/ZFU/ZNE/ZNU) FC11 handling: numerics are BIG-endian (opposite of BSP) ---
 private void handleEwelinkHydro(String attr, String val) {
     switch (attr) {
         case "0000": sendStr("childLock", (beHexToLong(val) != 0) ? "locked" : "unlocked"); break    // bool
@@ -529,7 +529,7 @@ private void handleEwelinkHydro(String attr, String val) {
         case "501B": sendNum("hourlyIrrigationVolume",     beHexToLong(val), "L"); break             // u32 BE
         case "501C": sendNum("hourlyIrrigationDuration",   beHexToLong(val), "min"); break           // u32 BE
         case "501F": handleScheduleStatus(val); break                                                // array: live schedule
-        case "5014": if (txtEnable) log.info "${device.displayName}: rain-delay end (raw ${val}) — full support in a later phase"; break
+        case "5014": if (txtEnable) log.info "${device.displayName}: rain-delay end (raw ${val}), full support in a later phase"; break
         default: if (logEnable) log.debug "Hydro FC11 attr ${attr} = ${val} (handled in a later phase)"
     }
 }
@@ -552,7 +552,7 @@ private void handleStatusHydro(String hex) {
     if (txtEnable) log.info "${device.displayName}: deviceStatus=${st}, water=${water}"
 }
 
-// Hydro irrigationScheduleStatus (0x501F) — ZCL array of u8, big-endian timestamps/volumes.
+// Hydro irrigationScheduleStatus (0x501F): ZCL array of u8, big-endian timestamps/volumes.
 // record after [arrayType,count]: [status][index][type][mode], then start/end times;
 // running/end (21 B) add actual-end + expected/actual volume; start/standby (15 B) add expected only.
 private void handleScheduleStatus(String hex) {
@@ -569,11 +569,11 @@ private void handleScheduleStatus(String hex) {
     sendStr("irrigationMode", mode)
     sendStr("scheduleStart", fmtEpoch(uint32BE(a, 4)))
     sendStr("scheduleEnd",   fmtEpoch(uint32BE(a, 8)))
-    if (a[0] == 1 && a.size() >= 21) {               // end — real actual-end + final volumes
+    if (a[0] == 1 && a.size() >= 21) {               // end: real actual-end + final volumes
         sendStr("scheduleActualEnd", fmtEpoch(uint32BE(a, 12)))
         sendNum("expectedVolume", ((a[17] & 0xff) << 8) | (a[18] & 0xff), a[16] == 0 ? "gal" : "L")
         sendNum("actualVolume",   ((a[19] & 0xff) << 8) | (a[20] & 0xff), a[16] == 0 ? "gal" : "L")
-    } else if (a[0] == 2 && a.size() >= 21) {        // running — live volume (bytes 12-15 are a live clock tick)
+    } else if (a[0] == 2 && a.size() >= 21) {        // running: live volume (bytes 12-15 are a live clock tick)
         sendStr("scheduleActualEnd", "running")
         sendNum("expectedVolume", ((a[17] & 0xff) << 8) | (a[18] & 0xff), a[16] == 0 ? "gal" : "L")
         sendNum("actualVolume",   ((a[19] & 0xff) << 8) | (a[20] & 0xff), a[16] == 0 ? "gal" : "L")
@@ -654,7 +654,7 @@ private long leHexToLong(String hex) {
 
 private int leHexToInt(String hex) { return (int) leHexToLong(hex) }
 
-// Hydro FC11 numerics are already big-endian on the wire — parse directly.
+// Hydro FC11 numerics are already big-endian on the wire, so parse directly.
 private long beHexToLong(String hex) {
     try { return Long.parseLong(hex, 16) } catch (ignored) { return 0L }
 }
