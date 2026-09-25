@@ -48,6 +48,20 @@ Driver for the Sonoff SNZB-04P door/window contact sensor with tamper detection.
 
 **Note:** The tamper sensor is triggered when the back cover is removed or the tamper button is pressed. This is useful for security monitoring.
 
+**Staying on the mesh:** a contact sensor on a quiet door can go hours without sending
+anything, and its parent router may then age it out, which is what makes these sensors
+"need re-pairing". The driver therefore asks for a battery report at least every 2 hours
+(the intervals zigbee2mqtt uses, whose source notes "3600/7200 prevents disconnect"), binds
+Poll Control so the sensor sends its hourly check-in, answers those check-ins, and answers
+IAS enroll requests after a rejoin. Sensors are asleep most of the time and miss commands,
+so the driver re-sends its setup by itself the next time an older-configured sensor wakes.
+
+**Firmware:** 2.2.0 (file version `0x00002200`) is the only SNZB-04P firmware published.
+There is no image in Sonoff's OTA feed or in Koenkk/zigbee-OTA, so there is nothing to
+update. The firmware will not report zone status more often than hourly and refuses
+reporting configuration for the tamper attribute, per a Sonoff developer in
+[zha-device-handlers#3308](https://github.com/zigpy/zha-device-handlers/issues/3308).
+
 ---
 
 #### Sonoff SWV Water Valve
@@ -510,6 +524,9 @@ A few changes alter behaviour on devices that are already paired:
   its state. Both drivers used to force `closed` (contact sensor) or `not present` (FP1E)
   on every save, so an open window could be reported shut and a heating zone watching it
   would resume heating.
+- **Sonoff SNZB-04P 1.1.0**: battery percentage was only halved above 100, so a battery at
+  50% read 100%. Existing sensors pick up the new reporting setup by themselves the next
+  time they wake, or run Configure while opening and closing the window.
 - **Room Zone 1.2.0**: the window action no longer writes setpoints straight to the valves.
   It went through a path that bypassed the app's own guard, so the app could read its own
   write back as a *manual override* and leave a radiator stuck at frost protection.

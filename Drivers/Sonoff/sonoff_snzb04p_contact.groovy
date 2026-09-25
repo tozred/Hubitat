@@ -5,6 +5,9 @@
  *
  *  A driver for the Sonoff SNZB-04P door/window contact sensor with tamper detection.
  *
+ *  Version: 1.1.0 - Report at least every 2 h and answer Poll Control check-ins so a quiet
+ *                  sensor is not aged out of the mesh; answer IAS enroll requests; fix battery
+ *                  percentage (always half-percent units)
  *  Version: 1.0.2 - Settings saves no longer overwrite the real contact state
  *  Version: 1.0.1 - Fixed tamper not auto-clearing when device sends clear signal
  *
@@ -72,6 +75,11 @@ metadata {
 
 @Field static final int SONOFF_MFG_CODE = 0x1286  // eWeLink/Coolkit
 
+// Bump when configure() changes. Sensors still on an older setup get it re-sent the next
+// time they wake and report, because they are asleep (and miss it) whenever it is sent
+// from the device page.
+@Field static final int REPORTING_VERSION = 2
+
 // IAS Zone status bits
 @Field static final int ZONE_STATUS_ALARM1 = 0x01      // Contact open
 @Field static final int ZONE_STATUS_ALARM2 = 0x02
@@ -118,14 +126,27 @@ def configure() {
     cmds += zigbee.readAttribute(0x0000, 0x0005)  // Model
     cmds += "delay 300"
 
-    // Configure IAS Zone for contact sensor
-    // Write IAS CIE address (required for IAS Zone devices)
+    // IAS Zone: bind, and enroll the sensor with the hub. The comment here used to promise
+    // enrollment but only the bind was sent.
     cmds += "zdo bind 0x${device.deviceNetworkId} 0x01 0x01 0x0500 {${device.zigbeeId}} {}"
     cmds += "delay 500"
+    cmds += zigbee.enrollResponse()
+    cmds += "delay 500"
 
-    // Configure battery reporting (cluster 0x0001)
-    // Attribute 0x0021 = battery percentage, report every 1-6 hours or on 1% change
-    cmds += zigbee.configureReporting(0x0001, 0x0021, 0x20, 3600, 21600, 1)
+    // Battery: report at least every 2 hours. A contact sensor on a quiet door otherwise
+    // says nothing for hours, and its parent router can age it out of the mesh, which is
+    // the "has to be re-paired" failure. Same intervals as zigbee2mqtt's ewelinkBattery(),
+    // whose source notes "3600/7200 prevents disconnect". This used to allow 6 hours.
+    cmds += "zdo bind 0x${device.deviceNetworkId} 0x01 0x01 0x0001 {${device.zigbeeId}} {}"
+    cmds += "delay 300"
+    cmds += zigbee.configureReporting(0x0001, 0x0021, 0x20, 3600, 7200, 2)   // percentage, 0.5% units
+    cmds += "delay 300"
+    cmds += zigbee.configureReporting(0x0001, 0x0020, 0x20, 3600, 7200, 1)   // voltage, 100 mV units
+    cmds += "delay 300"
+
+    // Poll Control: bind it so the sensor sends its hourly check-in to the hub, as
+    // zigbee-herdsman and zigpy do. Check-ins are answered in parseCatchall.
+    cmds += "zdo bind 0x${device.deviceNetworkId} 0x01 0x01 0x0020 {${device.zigbeeId}} {}"
     cmds += "delay 300"
 
     // Bind Sonoff custom cluster for tamper
@@ -136,6 +157,15 @@ def configure() {
     cmds += refresh()
 
     return cmds
+}
+
+/** The sensor just transmitted, so it is awake for a moment: the only reliable time to reach it. */
+private void ensureConfigured() {
+    if ((state.reportingVersion ?: 0) >= REPORTING_VERSION) return
+    if (now() - (state.lastConfigAttempt ?: 0) < 10 * 60 * 1000) return
+    state.lastConfigAttempt = now()
+    logInfo "Sensor is awake and on an older setup, sending configuration"
+    sendHubCommand(new hubitat.device.HubMultiAction(configure(), hubitat.device.Protocol.ZIGBEE))
 }
 
 def refresh() {
@@ -171,12 +201,20 @@ def clearTamper() {
 
 def parse(String description) {
     logDebug "Parsing: ${description?.take(100)}..."
+    ensureConfigured()
 
     try {
         // Check for IAS Zone status change notification
         if (description.startsWith("zone status")) {
             parseIasZoneStatus(description)
             return []
+        }
+
+        // An IAS device that has just (re)joined asks to be enrolled and, until it is, may not
+        // send its open/close notifications at all. This used to fall through unanswered.
+        if (description.startsWith("enroll request")) {
+            logInfo "Enroll request received, answering"
+            return zigbee.enrollResponse()
         }
 
         def descMap = zigbee.parseDescriptionAsMap(description)
@@ -260,6 +298,22 @@ private void parseCatchall(Map descMap) {
         processZoneStatus(zoneStatus)
     }
 
+    // Configure Reporting response for the battery cluster: status 00 means it was accepted
+    if (clusterId == "0001" && command == "07" && data && data[0] == "00") {
+        if ((state.reportingVersion ?: 0) < REPORTING_VERSION) logInfo "Battery reporting accepted"
+        state.reportingVersion = REPORTING_VERSION
+        return
+    }
+
+    // Poll Control check-in: answer "no fast polling" so the sensor goes straight back to
+    // sleep instead of waiting out its fast-poll timeout on battery.
+    if (clusterId == "0020" && command == "00" && descMap.isClusterSpecific) {
+        logDebug "Poll Control check-in"
+        sendHubCommand(new hubitat.device.HubMultiAction(
+            zigbee.command(0x0020, 0x00, "00", "0000"), hubitat.device.Protocol.ZIGBEE))
+        return
+    }
+
     // Handle Sonoff custom cluster reports
     if (clusterId == "FC11" && data?.size() >= 3) {
         // Attribute report format: [attrLow, attrHigh, type, value...]
@@ -303,9 +357,9 @@ private void parsePowerCluster(String attrId, String value) {
             sendEvent(name: "batteryVoltage", value: volts, unit: "V")
             break
         case "0021":  // Battery percentage
-            def percent = Integer.parseInt(value, 16)
-            // Some devices report 0-200, others 0-100
-            if (percent > 100) percent = percent / 2
+            // ZCL reports this in half-percent units (200 = 100%). Halving only values above
+            // 100 made a battery at 50% read as a full 100% and anything lower read double.
+            int percent = Math.max(0, Math.min(100, Math.round(Integer.parseInt(value, 16) / 2.0) as int))
             logInfo "Battery: ${percent}%"
             sendEvent(name: "battery", value: percent, unit: "%", descriptionText: "Battery is ${percent}%")
             break
