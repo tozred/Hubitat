@@ -15,13 +15,19 @@
 
 import groovy.transform.Field
 
-@Field static final String APP_VERSION = "1.2.0"
+@Field static final String APP_VERSION = "1.3.0"
 
 // Battery TRVs apply a setpoint on their next wake, so give them a wake cycle before
 // checking, then resend to any valve that did not take it.
 @Field static final int SETPOINT_VERIFY_DELAY = 120
 @Field static final int SETPOINT_MAX_RETRIES = 3
 @Field static final BigDecimal SETPOINT_TOLERANCE = 0.25
+
+// A TRV that detects an open window by itself (a fast temperature drop at the valve) does
+// not report it as a window: it switches itself "off" at its frost-protection temperature.
+// If it never switches back on, the zone resumes it after this long.
+@Field static final String TRV_WINDOW_SOURCE = "TRV detection"
+@Field static final int TRV_WINDOW_TIMEOUT = 30 * 60
 
 definition(
     name: "Room Zone",
@@ -153,6 +159,7 @@ def initialize() {
         subscribe(trvDevices, "temperature", temperatureHandler)
         subscribe(trvDevices, "heatingSetpoint", setpointHandler)
         subscribe(trvDevices, "thermostatOperatingState", operatingStateHandler)
+        subscribe(trvDevices, "thermostatMode", trvModeHandler)
 
         // Subscribe to TRV window detection if enabled
         if (useTrvWindowDetection) {
@@ -365,6 +372,14 @@ def setpointHandler(evt) {
         return
     }
 
+    // The valve closing itself for an open window is not someone turning the dial. Reading
+    // it as a manual override pinned the bedroom at 7°C and switched off the resend check.
+    if (isTrvWindowAction(evt.device, newSetpoint)) {
+        logInfo "${evt.device.displayName} closed itself for an open window"
+        handleWindowState(true, TRV_WINDOW_SOURCE)
+        return
+    }
+
     // Detect manual override
     if (state.lastAppliedSetpoint != null) {
         def threshold = (overrideThreshold ?: 0.5) as BigDecimal
@@ -394,6 +409,36 @@ def setpointHandler(evt) {
     }
 }
 
+/** True when the valve itself went to "off" at its frost temperature, rather than the hub. */
+private boolean isTrvWindowAction(dev, BigDecimal newSetpoint) {
+    def frost = dev.currentValue("frostProtection")
+    boolean atFrost = frost != null && newSetpoint <= (frost as BigDecimal) + SETPOINT_TOLERANCE
+    if (dev.currentValue("thermostatMode") != "off" && !atFrost) return false
+    // A valve switched off from a dashboard or Apple Home goes through a hub command, and
+    // that stays a deliberate choice.
+    try {
+        long cutoff = now() - 60 * 1000
+        if (dev.events([max: 15]).any { it.name?.startsWith("command-") && it.date.time >= cutoff }) return false
+    } catch (e) {
+        logDebug "Could not read recent commands for ${dev.displayName}: ${e.message}"
+    }
+    return true
+}
+
+def trvModeHandler(evt) {
+    logDebug "${evt.device.displayName} mode: ${evt.value}"
+    if (evt.value == "heat" && state.windowOpen && state.windowSource == TRV_WINDOW_SOURCE) {
+        handleWindowState(false, TRV_WINDOW_SOURCE)
+    }
+}
+
+def trvWindowTimeout() {
+    if (state.windowOpen && state.windowSource == TRV_WINDOW_SOURCE) {
+        logInfo "Valve still closed for a window after ${TRV_WINDOW_TIMEOUT / 60} min - resuming"
+        handleWindowState(false, TRV_WINDOW_SOURCE)
+    }
+}
+
 def operatingStateHandler(evt) {
     logDebug "${evt.device.displayName} operating state: ${evt.value}"
 }
@@ -416,6 +461,7 @@ def handleWindowState(boolean isOpen, String source) {
     if (isOpen && !state.windowOpen) {
         // Window just opened
         state.windowOpen = true
+        state.windowSource = source
         logInfo "Window open (${source}) - pausing heating"
 
         // Store current setpoint for later
@@ -423,6 +469,13 @@ def handleWindowState(boolean isOpen, String source) {
             state.pendingSetpoint = state.overrideSetpoint
         } else {
             state.pendingSetpoint = state.lastAppliedSetpoint
+        }
+
+        // The valve has already closed itself; writing to it now would only fight it.
+        if (source == TRV_WINDOW_SOURCE) {
+            runIn(TRV_WINDOW_TIMEOUT, trvWindowTimeout)
+            parent.notifyWindowState(app.id, app.label, true)
+            return
         }
 
         // Apply window action. This has to go through setRoomTemperature: writing the
