@@ -424,6 +424,19 @@ Unified heating control system for multiple TRVs.
 3. Install "Room Zone" child app
 4. Add app instance and configure
 
+**Windows:** when a window opens, the zone switches its valves **off** (the default). The old
+default, a 4°C setpoint, is not the same thing: the valve measures the air around itself,
+and under a window open to a frosty night that air falls below 4°C and the valve opens
+fully. The hub then confirms each valve really is off and resends if one missed it. Note
+that a Sonoff TRVZB in off mode still heats below its *frost protection* temperature, so
+set that to 4°C (the lowest it allows) if the valve sits under a window.
+
+When the window closes, heating stays off for a hold time (default 15 minutes) while the
+walls and furniture bring the air back up, then warms up gently: the setpoint starts 1°C
+above what the valves read and rises 1°C every 10 minutes (both adjustable per zone),
+instead of opening the valve fully. A schedule change or a manual setting during the
+warm-up takes over from it.
+
 **Note on window sensors:** a Room Zone applies its window action when *any* of its assigned
 contact sensors opens. Assign only the sensors for windows in that room. A sensor shared
 with another zone will drop this room's radiators too.
@@ -527,6 +540,9 @@ A few changes alter behaviour on devices that are already paired:
 - **Sonoff SNZB-04P 1.1.0**: battery percentage was only halved above 100, so a battery at
   50% read 100%. Existing sensors pick up the new reporting setup by themselves the next
   time they wake, or run Configure while opening and closing the window.
+- **Room Zone 1.4.0**: window action defaults to off; after a window closes the zone holds
+  off and then warms up 1°C per step. Existing zones keep their current window action
+  until you change it; the hold and warm-up apply to all zones.
 - **Room Zone 1.3.x**: two ways a room could get stuck at a frost or window temperature.
   A valve that closes itself for an open window (Sonoff TRVZB: it switches to `off` at its
   frost temperature, it never reports a window) was read as a manual override; it is now

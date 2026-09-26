@@ -15,7 +15,7 @@
 
 import groovy.transform.Field
 
-@Field static final String APP_VERSION = "1.3.1"
+@Field static final String APP_VERSION = "1.4.0"
 
 // Battery TRVs apply a setpoint on their next wake, so give them a wake cycle before
 // checking, then resend to any valve that did not take it.
@@ -28,6 +28,11 @@ import groovy.transform.Field
 // If it never switches back on, the zone resumes it after this long.
 @Field static final String TRV_WINDOW_SOURCE = "TRV detection"
 @Field static final int TRV_WINDOW_TIMEOUT = 30 * 60
+
+// After a window closes: stay off this long, then warm up 1°C per step instead of opening
+// the valve fully. Both are per-zone settings; these are the defaults.
+@Field static final int DEFAULT_HOLD_MINUTES = 15
+@Field static final int DEFAULT_WARMUP_STEP_MINUTES = 10
 
 definition(
     name: "Room Zone",
@@ -82,17 +87,23 @@ def mainPage() {
                   title: "When window opens",
                   options: [
                       "off": "Turn off heating completely",
-                      "minimum": "Set to minimum (4°C)",
+                      "minimum": "Set to minimum (4°C) - the valve still heats if the air at it drops below 4°C",
                       "frost": "Set to frost protection (7°C)"
                   ],
-                  defaultValue: "minimum",
+                  defaultValue: "off",
                   required: true
 
-            input "windowResumeDelay", "number",
-                  title: "Delay before resuming (seconds)",
-                  description: "Wait time after window closes before resuming heating",
-                  defaultValue: 60,
-                  range: "0..300"
+            input "windowHoldMinutes", "number",
+                  title: "Keep heating off after the window closes (minutes)",
+                  description: "Lets the room recover from its own walls before the radiator works",
+                  defaultValue: DEFAULT_HOLD_MINUTES,
+                  range: "0..120"
+
+            input "warmupStepMinutes", "number",
+                  title: "Warm up gently: raise 1°C every N minutes (0 = go straight to the target)",
+                  description: "Starts 1°C above the current temperature instead of opening the valve fully",
+                  defaultValue: DEFAULT_WARMUP_STEP_MINUTES,
+                  range: "0..60"
         }
 
         section("<b>Override Settings</b>") {
@@ -223,6 +234,17 @@ def applyMasterSetpoint(BigDecimal masterTemp, Boolean forceOverride = true) {
     def roomTemp = masterTemp + (tempOffset ?: 0)
     roomTemp = constrainTemp(roomTemp)
 
+    // During a warm-up, a higher target just becomes where the warm-up ends; a lower one
+    // applies at once.
+    if (state.warmupTarget != null) {
+        if (roomTemp > (state.lastAppliedSetpoint as BigDecimal)) {
+            logInfo "Warm-up now heading for ${roomTemp}°C"
+            state.warmupTarget = roomTemp
+            return
+        }
+        stopWarmup()
+    }
+
     logInfo "Applying master ${masterTemp}°C + offset ${tempOffset ?: 0}°C = ${roomTemp}°C"
     setRoomTemperature(roomTemp)
 }
@@ -324,6 +346,10 @@ def clearApplyingFlag() {
 
 /** Resend the room setpoint to any valve that did not actually take it. */
 def verifySetpoints() {
+    if (state.expectOff) {
+        verifyValvesOff()
+        return
+    }
     BigDecimal target = state.lastAppliedSetpoint as BigDecimal
     if (target == null) return
 
@@ -365,6 +391,80 @@ def verifySetpoints() {
     }
     runIn(5, clearApplyingFlag)
     runIn(SETPOINT_VERIFY_DELAY, verifySetpoints)
+}
+
+/** Same idea as verifySetpoints, for the window "off" action. */
+def verifyValvesOff() {
+    if (!state.expectOff) return
+    def stale = trvDevices?.findAll { it.currentValue("thermostatMode") != "off" }
+    if (!stale) {
+        if (state.setpointRetries) logInfo "All valves confirmed off"
+        state.setpointRetries = 0
+        return
+    }
+    if ((state.setpointRetries ?: 0) >= SETPOINT_MAX_RETRIES) {
+        logWarn "Gave up switching off: ${stale.collect { it.displayName }.join(', ')}"
+        state.setpointRetries = 0
+        return
+    }
+    state.setpointRetries = (state.setpointRetries ?: 0) + 1
+    logWarn "Resending off to ${stale.collect { it.displayName }.join(', ')} (attempt ${state.setpointRetries})"
+    switchValves("off")
+    runIn(SETPOINT_VERIFY_DELAY, verifySetpoints)
+}
+
+/** Switch every valve on or off, marking it as our own change so no handler mistakes it. */
+private void switchValves(String mode) {
+    state.applyingSetpoint = true
+    markOwnWrite(null)
+    atomicState.ownModeUntil = now() + 30 * 1000
+    trvDevices?.each { trv ->
+        try {
+            mode == "off" ? trv.off() : trv.heat()
+        } catch (e) {
+            logWarn "Failed to switch ${trv.displayName} ${mode}: ${e.message}"
+        }
+    }
+    runIn(5, clearApplyingFlag)
+}
+
+// ==================== Warm-up after a window ====================
+
+/** Start 1°C above what the valves read and climb to the target one step at a time. */
+private void startWarmup(BigDecimal target) {
+    int stepMinutes = (warmupStepMinutes != null ? warmupStepMinutes : DEFAULT_WARMUP_STEP_MINUTES) as int
+    def current = getCurrentTemperature()
+    if (stepMinutes <= 0 || current == null || target - (current as BigDecimal) <= 1) {
+        setRoomTemperature(target)
+        return
+    }
+    BigDecimal first = constrainTemp(new BigDecimal(Math.floor((current as BigDecimal).doubleValue()) + 1))
+    if (first >= target) {
+        setRoomTemperature(target)
+        return
+    }
+    state.warmupTarget = target
+    logInfo "Warming up gently from ${current}°C: ${first}°C now, +1°C every ${stepMinutes} min up to ${target}°C"
+    setRoomTemperature(first)
+    runIn(stepMinutes * 60, warmupStep)
+}
+
+def warmupStep() {
+    if (state.warmupTarget == null || state.windowOpen) return
+    BigDecimal target = state.warmupTarget as BigDecimal
+    BigDecimal next = [(state.lastAppliedSetpoint as BigDecimal) + 1, target].min()
+    setRoomTemperature(next)
+    if (next < target) {
+        runIn(((warmupStepMinutes ?: DEFAULT_WARMUP_STEP_MINUTES) as int) * 60, warmupStep)
+    } else {
+        logInfo "Warm-up finished at ${target}°C"
+        state.warmupTarget = null
+    }
+}
+
+private void stopWarmup() {
+    unschedule("warmupStep")
+    state.warmupTarget = null
 }
 
 def notifyParentTemperature() {
@@ -410,6 +510,7 @@ def setpointHandler(evt) {
             // This is likely a manual change
             if (!state.isOverridden) {
                 logInfo "Manual override detected: ${newSetpoint}°C (was ${state.lastAppliedSetpoint}°C)"
+                stopWarmup()
                 state.isOverridden = true
                 state.overrideSetpoint = newSetpoint
 
@@ -448,6 +549,7 @@ private boolean isTrvWindowAction(dev, BigDecimal newSetpoint) {
 
 def trvModeHandler(evt) {
     logDebug "${evt.device.displayName} mode: ${evt.value}"
+    if (now() < (atomicState.ownModeUntil ?: 0)) return   // we switched it
     if (evt.value == "heat" && state.windowOpen && state.windowSource == TRV_WINDOW_SOURCE) {
         handleWindowState(false, TRV_WINDOW_SOURCE)
     }
@@ -483,6 +585,7 @@ def handleWindowState(boolean isOpen, String source) {
         // Window just opened
         state.windowOpen = true
         state.windowSource = source
+        stopWarmup()
         logInfo "Window open (${source}) - pausing heating"
 
         // Store current setpoint for later
@@ -504,16 +607,12 @@ def handleWindowState(boolean isOpen, String source) {
         // override, and skipped the resend that catches valves which drop the command.
         switch (windowAction) {
             case "off":
-                state.applyingSetpoint = true
-                markOwnWrite(null)
-                trvDevices?.each { trv ->
-                    try {
-                        trv.off()
-                    } catch (e) {
-                        logWarn "Failed to turn off ${trv.displayName}: ${e.message}"
-                    }
-                }
-                runIn(5, clearApplyingFlag)
+                // Really off. At "minimum" (4°C) a valve under a window open to a frosty night
+                // measures air below 4°C and opens fully.
+                switchValves("off")
+                state.expectOff = true
+                state.setpointRetries = 0
+                runIn(SETPOINT_VERIFY_DELAY, verifySetpoints)
                 break
             case "frost":
                 setRoomTemperature(7)
@@ -527,11 +626,16 @@ def handleWindowState(boolean isOpen, String source) {
         parent.notifyWindowState(app.id, app.label, true)
 
     } else if (!isOpen && state.windowOpen) {
-        // Window just closed
-        logInfo "Window closed (${source}) - will resume heating in ${windowResumeDelay ?: 60}s"
-
-        // Schedule resume with delay
-        runIn(windowResumeDelay ?: 60, resumeAfterWindowClose)
+        // Window just closed. Stay off for a while: the walls and furniture bring the air
+        // back up by themselves, and a radiator started straight away works flat out.
+        int hold = (windowHoldMinutes != null ? windowHoldMinutes : DEFAULT_HOLD_MINUTES) as int
+        logInfo "Window closed (${source}) - heating stays off for ${hold} min, then warms up gently"
+        if (windowAction == "off" && !state.expectOff) {
+            // The valve closed itself and may already have switched back on
+            switchValves("off")
+            state.expectOff = true
+        }
+        runIn(Math.max(hold * 60, 5), resumeAfterWindowClose)
     }
 }
 
@@ -549,6 +653,7 @@ def resumeAfterWindowClose() {
     }
 
     state.windowOpen = false
+    state.expectOff = false
     logInfo "Resuming heating after window close"
 
     // Notify parent
@@ -556,9 +661,7 @@ def resumeAfterWindowClose() {
 
     // Restore heating mode
     if (state.currentMode != "off") {
-        trvDevices?.each { trv ->
-            trv.heat()
-        }
+        switchValves("heat")
     }
 
     // Restore setpoint
@@ -573,7 +676,11 @@ def resumeAfterWindowClose() {
     }
 
     if (setpointToApply) {
-        setRoomTemperature(setpointToApply)
+        if (state.isOverridden) {
+            setRoomTemperature(setpointToApply)      // someone chose this, honour it at once
+        } else {
+            startWarmup(constrainTemp(setpointToApply as BigDecimal))
+        }
     }
 
     state.pendingSetpoint = null
