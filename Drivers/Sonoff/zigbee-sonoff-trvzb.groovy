@@ -32,7 +32,7 @@ import groovy.transform.Field
 
 // ==================== Constants ====================
 
-@Field static final String DRIVER_VERSION = "2.3.0"
+@Field static final String DRIVER_VERSION = "2.3.1"
 // Manufacturer code - can be string "0x1286" or integer 0x1286
 // Using string format for broader compatibility
 @Field static final String SONOFF_MFG_CODE = "0x1286"
@@ -130,6 +130,7 @@ metadata {
         capability "ThermostatSetpoint"
         capability "ThermostatMode"
         capability "ThermostatOperatingState"
+        capability "Thermostat"          // the full capability: HomeKit only offers its thermostat type for it
         capability "HealthCheck"
 
         // Custom attributes
@@ -591,6 +592,10 @@ def emergencyHeat() {
 
 def cool() {
     logWarn "Cool mode not supported on heating-only TRV"
+}
+
+def setSchedule(schedule) {
+    logDebug "setSchedule not supported on TRVZB"
 }
 
 def setCoolingSetpoint(temperature) {

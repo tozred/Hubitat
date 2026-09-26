@@ -14,7 +14,7 @@
 
 import groovy.transform.Field
 
-@Field static final String DRIVER_VERSION = "1.1.0"
+@Field static final String DRIVER_VERSION = "1.1.1"
 
 metadata {
     definition(
@@ -29,6 +29,7 @@ metadata {
         capability "ThermostatSetpoint"
         capability "ThermostatMode"
         capability "ThermostatOperatingState"
+        capability "Thermostat"          // the full capability: HomeKit only offers its thermostat type for it
         capability "TemperatureMeasurement"
         capability "Refresh"
 
