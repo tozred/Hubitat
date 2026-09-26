@@ -15,7 +15,7 @@
 
 import groovy.transform.Field
 
-@Field static final String APP_VERSION = "1.4.0"
+@Field static final String APP_VERSION = "1.4.1"
 
 // Battery TRVs apply a setpoint on their next wake, so give them a wake cycle before
 // checking, then resend to any valve that did not take it.
@@ -490,6 +490,13 @@ def setpointHandler(evt) {
     // Ignore if we're currently applying a setpoint (prevents false override detection)
     if (state.applyingSetpoint || isOwnWrite(newSetpoint)) {
         logDebug "Ignoring setpoint event - we initiated this change"
+        return
+    }
+
+    // While a window pause is running the valves are ours: late reports of the off-mode
+    // setpoint are expected and are not a person or a new window.
+    if (state.windowOpen) {
+        logDebug "Ignoring setpoint event during window pause"
         return
     }
 
