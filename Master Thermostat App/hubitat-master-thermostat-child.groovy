@@ -15,7 +15,7 @@
 
 import groovy.transform.Field
 
-@Field static final String APP_VERSION = "1.3.0"
+@Field static final String APP_VERSION = "1.3.1"
 
 // Battery TRVs apply a setpoint on their next wake, so give them a wake cycle before
 // checking, then resend to any valve that did not take it.
@@ -277,6 +277,7 @@ def setRoomTemperature(BigDecimal temp) {
 
     // Set flag to prevent setpointHandler from detecting this as manual override
     state.applyingSetpoint = true
+    markOwnWrite(temp)
 
     trvDevices?.each { trv ->
         try {
@@ -296,6 +297,25 @@ def setRoomTemperature(BigDecimal temp) {
     // sitting at frost protection for twelve hours while the rest of the room was at 16°C.
     state.setpointRetries = 0
     runIn(SETPOINT_VERIFY_DELAY, verifySetpoints)
+}
+
+/**
+ * Remember what we just wrote to the valves, immediately. state is only saved when an
+ * execution ends, so a valve that answered within a fraction of a second was handled by a
+ * second execution that still saw the old state: it read our own 4°C window action as a
+ * manual override, and the Living Room then "resumed" to 4°C for seven hours. atomicState
+ * is written at once. (Kept under its own keys: mixing state and atomicState on one key
+ * lets the end-of-run state save overwrite the atomic value.)
+ */
+private void markOwnWrite(BigDecimal setpoint) {
+    atomicState.ownWriteSetpoint = setpoint
+    atomicState.ownWriteUntil = now() + 30 * 1000
+}
+
+private boolean isOwnWrite(BigDecimal setpoint) {
+    if (now() > (atomicState.ownWriteUntil ?: 0)) return false
+    def mine = atomicState.ownWriteSetpoint
+    return mine == null || (setpoint - (mine as BigDecimal)).abs() <= SETPOINT_TOLERANCE
 }
 
 def clearApplyingFlag() {
@@ -335,6 +355,7 @@ def verifySetpoints() {
     logWarn "Resending ${target}°C to ${stale.collect { it.displayName }.join(', ')} (attempt ${state.setpointRetries})"
 
     state.applyingSetpoint = true
+    markOwnWrite(target)
     stale.each { trv ->
         try {
             trv.setHeatingSetpoint(target)
@@ -367,7 +388,7 @@ def setpointHandler(evt) {
     logDebug "${evt.device.displayName} setpoint changed to ${newSetpoint}°C"
 
     // Ignore if we're currently applying a setpoint (prevents false override detection)
-    if (state.applyingSetpoint) {
+    if (state.applyingSetpoint || isOwnWrite(newSetpoint)) {
         logDebug "Ignoring setpoint event - we initiated this change"
         return
     }
@@ -484,6 +505,7 @@ def handleWindowState(boolean isOpen, String source) {
         switch (windowAction) {
             case "off":
                 state.applyingSetpoint = true
+                markOwnWrite(null)
                 trvDevices?.each { trv ->
                     try {
                         trv.off()

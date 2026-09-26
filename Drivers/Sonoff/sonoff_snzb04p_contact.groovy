@@ -5,6 +5,7 @@
  *
  *  A driver for the Sonoff SNZB-04P door/window contact sensor with tamper detection.
  *
+ *  Version: 1.1.1 - Send the essential settings first, without reads, when a sensor wakes
  *  Version: 1.1.0 - Report at least every 2 h and answer Poll Control check-ins so a quiet
  *                  sensor is not aged out of the mesh; answer IAS enroll requests; fix battery
  *                  percentage (always half-percent units)
@@ -117,45 +118,45 @@ def initialize() {
 
 def configure() {
     logInfo "Configuring SNZB-04P..."
+    def cmds = essentialConfig()
 
-    def cmds = []
-
-    // Read device info
+    // Nice to have, and only after the settings that matter: the sensor may already be
+    // asleep again by the time these go out.
+    cmds += "zdo bind 0x${device.deviceNetworkId} 0x01 0x01 0xFC11 {${device.zigbeeId}} {}"   // tamper
+    cmds += "delay 300"
     cmds += zigbee.readAttribute(0x0000, 0x0004)  // Manufacturer
     cmds += "delay 200"
     cmds += zigbee.readAttribute(0x0000, 0x0005)  // Model
-    cmds += "delay 300"
+    cmds += "delay 200"
+    cmds += refresh()
+    return cmds
+}
 
-    // IAS Zone: bind, and enroll the sensor with the hub. The comment here used to promise
-    // enrollment but only the bind was sent.
-    cmds += "zdo bind 0x${device.deviceNetworkId} 0x01 0x01 0x0500 {${device.zigbeeId}} {}"
-    cmds += "delay 500"
-    cmds += zigbee.enrollResponse()
-    cmds += "delay 500"
-
+/**
+ * The settings that keep the sensor on the mesh, most important first and with short gaps.
+ * A sleepy sensor stays awake only a moment after it reports; with three seconds of reads
+ * in front of these, two windows re-sent their setup on every wake and never took it.
+ */
+private List<String> essentialConfig() {
+    def cmds = []
     // Battery: report at least every 2 hours. A contact sensor on a quiet door otherwise
     // says nothing for hours, and its parent router can age it out of the mesh, which is
     // the "has to be re-paired" failure. Same intervals as zigbee2mqtt's ewelinkBattery(),
     // whose source notes "3600/7200 prevents disconnect". This used to allow 6 hours.
+    cmds += zigbee.configureReporting(0x0001, 0x0021, 0x20, 3600, 7200, 2, [:], 100)   // percentage, 0.5% units
     cmds += "zdo bind 0x${device.deviceNetworkId} 0x01 0x01 0x0001 {${device.zigbeeId}} {}"
-    cmds += "delay 300"
-    cmds += zigbee.configureReporting(0x0001, 0x0021, 0x20, 3600, 7200, 2)   // percentage, 0.5% units
-    cmds += "delay 300"
-    cmds += zigbee.configureReporting(0x0001, 0x0020, 0x20, 3600, 7200, 1)   // voltage, 100 mV units
-    cmds += "delay 300"
+    cmds += "delay 100"
+    cmds += zigbee.configureReporting(0x0001, 0x0020, 0x20, 3600, 7200, 1, [:], 100)   // voltage, 100 mV units
 
     // Poll Control: bind it so the sensor sends its hourly check-in to the hub, as
     // zigbee-herdsman and zigpy do. Check-ins are answered in parseCatchall.
     cmds += "zdo bind 0x${device.deviceNetworkId} 0x01 0x01 0x0020 {${device.zigbeeId}} {}"
-    cmds += "delay 300"
+    cmds += "delay 100"
 
-    // Bind Sonoff custom cluster for tamper
-    cmds += "zdo bind 0x${device.deviceNetworkId} 0x01 0x01 0xFC11 {${device.zigbeeId}} {}"
-    cmds += "delay 500"
-
-    // Read current state
-    cmds += refresh()
-
+    // IAS Zone: bind, and enroll the sensor with the hub.
+    cmds += "zdo bind 0x${device.deviceNetworkId} 0x01 0x01 0x0500 {${device.zigbeeId}} {}"
+    cmds += "delay 100"
+    cmds += zigbee.enrollResponse()
     return cmds
 }
 
@@ -165,7 +166,7 @@ private void ensureConfigured() {
     if (now() - (state.lastConfigAttempt ?: 0) < 10 * 60 * 1000) return
     state.lastConfigAttempt = now()
     logInfo "Sensor is awake and on an older setup, sending configuration"
-    sendHubCommand(new hubitat.device.HubMultiAction(configure(), hubitat.device.Protocol.ZIGBEE))
+    sendHubCommand(new hubitat.device.HubMultiAction(essentialConfig(), hubitat.device.Protocol.ZIGBEE))
 }
 
 def refresh() {

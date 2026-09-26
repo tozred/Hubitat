@@ -527,6 +527,13 @@ A few changes alter behaviour on devices that are already paired:
 - **Sonoff SNZB-04P 1.1.0**: battery percentage was only halved above 100, so a battery at
   50% read 100%. Existing sensors pick up the new reporting setup by themselves the next
   time they wake, or run Configure while opening and closing the window.
+- **Room Zone 1.3.x**: two ways a room could get stuck at a frost or window temperature.
+  A valve that closes itself for an open window (Sonoff TRVZB: it switches to `off` at its
+  frost temperature, it never reports a window) was read as a manual override; it is now
+  treated as an open window and heating resumes when the valve switches back on, or after
+  30 minutes. And a valve that answered within a fraction of a second could be read as a
+  manual change, because Hubitat only saves an app's `state` when the handler finishes;
+  the zone now records its own writes in `atomicState` straight away.
 - **Room Zone 1.2.0**: the window action no longer writes setpoints straight to the valves.
   It went through a path that bypassed the app's own guard, so the app could read its own
   write back as a *manual override* and leave a radiator stuck at frost protection.
