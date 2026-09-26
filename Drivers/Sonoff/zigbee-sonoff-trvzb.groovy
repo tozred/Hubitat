@@ -32,7 +32,7 @@ import groovy.transform.Field
 
 // ==================== Constants ====================
 
-@Field static final String DRIVER_VERSION = "2.3.1"
+@Field static final String DRIVER_VERSION = "2.3.2"
 // Manufacturer code - can be string "0x1286" or integer 0x1286
 // Using string format for broader compatibility
 @Field static final String SONOFF_MFG_CODE = "0x1286"
@@ -256,6 +256,7 @@ def installed() {
 }
 
 def updated() {
+    sendSupportedModes()
     log.info "TRVZB Driver updated"
     unschedule()
 
@@ -267,9 +268,19 @@ def updated() {
     sendEvent(name: "driverVersion", value: DRIVER_VERSION)
 }
 
+/**
+ * HomeKit reads these as JSON. A Groovy list was stored as "[off, heat, auto]", which the
+ * HomeKit bridge cannot parse, so the thermostat showed up read-only; and "auto" in Apple
+ * Home means a heat/cool range, which a radiator does not have. No fan modes: radiators
+ * have no fan.
+ */
+private void sendSupportedModes() {
+    sendEvent(name: "supportedThermostatModes", value: groovy.json.JsonOutput.toJson(["off", "heat"]))
+    sendEvent(name: "supportedThermostatFanModes", value: groovy.json.JsonOutput.toJson([]))
+}
+
 def initialize() {
-    sendEvent(name: "supportedThermostatModes", value: ["off", "heat", "auto"])
-    sendEvent(name: "supportedThermostatFanModes", value: [])
+    sendSupportedModes()
     sendEvent(name: "driverVersion", value: DRIVER_VERSION)
     sendEvent(name: "healthStatus", value: "online")
 

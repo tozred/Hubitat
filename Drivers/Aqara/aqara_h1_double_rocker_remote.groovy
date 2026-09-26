@@ -27,6 +27,9 @@
  *  Pairing Instructions:
  *  Hold the LEFT rocker for 10 seconds until the LEDs start flashing.
  *
+ *  Version: 1.1.0 - Button reports survive a reset: "event" operation mode (0xFCC0/0x0009)
+ *                   is re-sent whenever the remote wakes until it confirms; click mode now
+ *                   goes to its real attribute (0x0125) instead of the operation mode
  *  Version: 1.0.0
  *
  *  References:
@@ -40,7 +43,14 @@ import groovy.transform.Field
 
 // ==================== Constants ====================
 
-@Field static final String DRIVER_VERSION = "1.0.0"
+@Field static final String DRIVER_VERSION = "1.1.0"
+
+// Lumi cluster attributes, per zigbee-herdsman-converters (WXKG15LM / WRS-R02):
+// 0x0009 "mode" is the OPERATION mode: 0 = command (buttons drive bound devices directly,
+// nothing reaches the hub), 1 = event (buttons are reported to the hub). A reset returns it
+// to command mode. 0x0125 is the CLICK mode: 1 = fast (single only), 2 = multi.
+@Field static final int ATTR_OPERATION_MODE = 0x0009
+@Field static final int ATTR_CLICK_MODE = 0x0125
 
 // Cluster IDs
 @Field static final int CLUSTER_BASIC = 0x0000
@@ -155,16 +165,39 @@ def configure() {
     cmds += zigbee.configureReporting(CLUSTER_POWER_CONFIG, 0x0021, 0x20, 3600, 21600, 1)
     cmds += "delay 500"
 
-    // Enable multi-click mode (mode: 1)
-    // This tells the device to detect double/triple/hold instead of just single clicks
-    def modeValue = (defaultClickMode == "fast") ? 0 : 1
-    cmds += zigbee.writeAttribute(CLUSTER_LUMI, 0x0009, 0x20, modeValue, [mfgCode: LUMI_MFG_CODE])
-    cmds += "delay 500"
+    cmds += modeCommands()
 
     // Read battery
     cmds += zigbee.readAttribute(CLUSTER_POWER_CONFIG, 0x0021)
 
     return cmds
+}
+
+/** Event mode first (without it no press reaches the hub), then the click mode, then read back. */
+private List<String> modeCommands() {
+    def cmds = []
+    cmds += zigbee.writeAttribute(CLUSTER_LUMI, ATTR_OPERATION_MODE, 0x20, 1, [mfgCode: LUMI_MFG_CODE], 100)
+    cmds += zigbee.writeAttribute(CLUSTER_LUMI, ATTR_CLICK_MODE, 0x20, (defaultClickMode == "fast") ? 1 : 2, [mfgCode: LUMI_MFG_CODE], 100)
+    cmds += zigbee.readAttribute(CLUSTER_LUMI, ATTR_OPERATION_MODE, [mfgCode: LUMI_MFG_CODE], 100)
+    return cmds
+}
+
+/**
+ * The remote sleeps within a second or two of joining, so the mode write sent at pairing can
+ * be lost and the buttons then stay silent. It still checks in hourly; each time it does, and
+ * until it confirms event mode, send the mode again while it is awake.
+ */
+private void ensureEventMode() {
+    if (state.eventModeConfirmed) return
+    if (now() - (state.lastModeAttempt ?: 0) < 5 * 60 * 1000) return
+    state.lastModeAttempt = now()
+    logInfo "Remote is awake, switching it to report button presses to the hub"
+    sendZigbeeCommands(modeCommands())
+}
+
+private void confirmEventMode(boolean ok) {
+    if (ok && !state.eventModeConfirmed) logInfo "Button reporting to the hub confirmed"
+    state.eventModeConfirmed = ok
 }
 
 def refresh() {
@@ -181,10 +214,10 @@ def refresh() {
 def setClickMode(String mode) {
     logInfo "Setting click mode to: ${mode}"
 
-    def modeValue = (mode == "fast") ? 0 : 1
-
     def cmds = []
-    cmds += zigbee.writeAttribute(CLUSTER_LUMI, 0x0009, 0x20, modeValue, [mfgCode: LUMI_MFG_CODE])
+    // This used to write 0x0009, which is the operation mode: "fast" (0) switched the remote
+    // to command mode and its buttons stopped reaching the hub.
+    cmds += zigbee.writeAttribute(CLUSTER_LUMI, ATTR_CLICK_MODE, 0x20, (mode == "fast") ? 1 : 2, [mfgCode: LUMI_MFG_CODE])
 
     sendEvent(name: "clickMode", value: mode)
     sendZigbeeCommands(cmds)
@@ -241,6 +274,7 @@ def parse(String description) {
 
     // Update activity timestamp
     sendEvent(name: "lastActivity", value: new Date().format("yyyy-MM-dd HH:mm:ss"))
+    ensureEventMode()
 
     def events = []
 
@@ -285,8 +319,13 @@ private List handleReadAttr(Map descMap) {
             }
             break
 
+        case "FCC0":  // Lumi
+            if (attrId == "0009") confirmEventMode(value == "01")
+            break
+
         case "0012":  // Multistate Input
             if (attrId == "0055") {  // Present Value
+                confirmEventMode(true)   // a press arrived, so it is in event mode
                 events += handleMultistateButton(descMap)
             }
             break

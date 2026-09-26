@@ -14,7 +14,7 @@
 
 import groovy.transform.Field
 
-@Field static final String DRIVER_VERSION = "1.1.1"
+@Field static final String DRIVER_VERSION = "1.1.2"
 
 metadata {
     definition(
@@ -96,14 +96,24 @@ def installed() {
 }
 
 def updated() {
+    sendSupportedModes()
     log.info "Virtual Master Thermostat updated"
     if (logEnable) runIn(86400, logsOff)   // debug logging switches itself off after 24 h
 }
 
+/**
+ * HomeKit reads these as JSON. A Groovy list was stored as "[off, heat, auto]", which the
+ * HomeKit bridge cannot parse, so the thermostat showed up read-only; and "auto" in Apple
+ * Home means a heat/cool range, which a radiator does not have. No fan modes: radiators
+ * have no fan.
+ */
+private void sendSupportedModes() {
+    sendEvent(name: "supportedThermostatModes", value: groovy.json.JsonOutput.toJson(["off", "heat"]))
+    sendEvent(name: "supportedThermostatFanModes", value: groovy.json.JsonOutput.toJson([]))
+}
+
 def initialize() {
-    sendEvent(name: "supportedThermostatModes", value: ["off", "heat", "auto"])
-    sendEvent(name: "supportedThermostatFanModes", value: [])
-    sendEvent(name: "thermostatFanMode", value: "auto")
+    sendSupportedModes()
     sendEvent(name: "driverVersion", value: DRIVER_VERSION)
 
     // Set defaults if not already set
