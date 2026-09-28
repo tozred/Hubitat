@@ -36,7 +36,7 @@ import groovy.transform.Field
 
 // ==================== Constants ====================
 
-@Field static final String DRIVER_VERSION = "2.4.0"
+@Field static final String DRIVER_VERSION = "2.4.1"
 // Manufacturer code - can be string "0x1286" or integer 0x1286
 // Using string format for broader compatibility
 @Field static final String SONOFF_MFG_CODE = "0x1286"
@@ -247,7 +247,13 @@ metadata {
         fingerprint manufacturer: "sonoff", model: "TRVZB",
                     deviceJoinName: "Sonoff TRVZB"
 
-        // Gen2
+        // Gen2, as a TRV-ZBT on firmware 1.1.0 reported it when joining. Hubitat did not pick
+        // the driver from manufacturer and model alone, so the full fingerprint comes first.
+        fingerprint profileId: "0104", endpointId: "01",
+                    inClusters: "0000,0001,0003,0006,0020,0201,FC11,FC57",
+                    outClusters: "000A,0019",
+                    manufacturer: "SONOFF", model: "TRV-ZBT",
+                    deviceJoinName: "Sonoff TRV-ZBT"
         fingerprint manufacturer: "SONOFF", model: "TRV-ZBT",
                     deviceJoinName: "Sonoff TRV-ZBT"
         fingerprint manufacturer: "Sonoff", model: "TRV-ZBT",
