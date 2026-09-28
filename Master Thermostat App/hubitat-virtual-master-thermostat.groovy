@@ -14,7 +14,7 @@
 
 import groovy.transform.Field
 
-@Field static final String DRIVER_VERSION = "1.1.2"
+@Field static final String DRIVER_VERSION = "1.1.3"
 
 metadata {
     definition(
@@ -169,6 +169,10 @@ def setHeatingSetpoint(BigDecimal temperature) {
 }
 
 def setThermostatMode(String mode) {
+    // Apple Home offers Off/Cool/Heat/Auto on every thermostat whatever the driver reports
+    // (Hubitat's HomeKit bridge ignores supportedThermostatModes). Anything but off means
+    // heat here: "auto" would put a TRVZB on its own weekly schedule and bypass the zones.
+    if (mode != "off") mode = "heat"
     if (!(mode in ["off", "heat", "auto"])) {
         logWarn "Invalid mode: ${mode}, using heat"
         mode = "heat"
@@ -196,8 +200,9 @@ def off() {
 }
 
 def auto() {
-    setThermostatMode("auto")
+    heat()   // no cooling or schedule mode here, see setThermostatMode
 }
+
 
 def refresh() {
     logDebug "Refresh requested"
@@ -287,8 +292,9 @@ def setCoolingSetpoint(temperature) {
 }
 
 def cool() {
-    logWarn "Cool mode not supported (heating-only system)"
+    heat()   // no cooling or schedule mode here, see setThermostatMode
 }
+
 
 def emergencyHeat() {
     logInfo "Emergency heat - switching to heat mode"

@@ -1,7 +1,11 @@
 /**
- *  Sonoff TRVZB Thermostatic Radiator Valve
+ *  Sonoff TRVZB and TRV-ZBT (Gen2) Thermostatic Radiator Valves
  *
- *  A comprehensive, resilient driver for SONOFF TRVZB
+ *  A comprehensive, resilient driver for SONOFF TRVZB and TRV-ZBT. The two share the
+ *  thermostat cluster and nearly all of the Sonoff custom cluster 0xFC11; where they differ
+ *  (smart temperature control, frost protection range, Gen2-only diagnostics) the driver
+ *  branches on the model the valve reports. Attribute IDs checked against the TRVZB and
+ *  TRV-ZBT definitions in Koenkk/zigbee-herdsman-converters (src/devices/sonoff.ts).
  *  Based on device discovery data and zigbee2mqtt documentation
  *
  *  Features:
@@ -32,7 +36,7 @@ import groovy.transform.Field
 
 // ==================== Constants ====================
 
-@Field static final String DRIVER_VERSION = "2.3.2"
+@Field static final String DRIVER_VERSION = "2.4.0"
 // Manufacturer code - can be string "0x1286" or integer 0x1286
 // Using string format for broader compatibility
 @Field static final String SONOFF_MFG_CODE = "0x1286"
@@ -82,7 +86,23 @@ import groovy.transform.Field
 @Field static final int ATTR_TEMPORARY_MODE = 0x6014         // UINT8: 0 = boost, 1 = timer
 @Field static final int ATTR_TEMPORARY_MODE_TIME = 0x6015    // UINT32 seconds
 @Field static final int ATTR_TEMPORARY_MODE_TEMP = 0x6016    // INT16, 0.01 °C
-@Field static final int ATTR_SMART_TEMP_CONTROL = 0x6017     // BITMAP8: 1 = adaptive (PID) valve control
+@Field static final int ATTR_SMART_TEMP_CONTROL = 0x6017     // TRVZB, BITMAP8: 0x02 = on, 0x00 = off
+// TRV-ZBT (Gen2) only
+@Field static final int ATTR_SMART_TEMP_CONTROL_GEN2 = 0x6013 // ENUM8: 0x02 = on, 0x01 = off
+@Field static final int ATTR_FAULT_CODE = 0x0010             // UINT32, low 16 bits = fault flags
+@Field static final int ATTR_SCREEN_DIRECTION = 0x0021       // UINT8: 0/1/2/3 = 0/90/180/270 degrees
+@Field static final int ATTR_LOW_BATTERY_VALVE = 0x601C      // UINT8: 0 = close, 30 = hold 30 % open
+@Field static final int ATTR_HEAT_PERCENT_HOUR = 0x6033      // UINT8: % of the last hour spent heating
+@Field static final int ATTR_MOTOR_CALIBRATION = 0x6036      // BOOLEAN: write 0 to start travel calibration
+@Field static final int ATTR_MOTOR_CALIBRATION_STATUS = 0x6037 // UINT8: 0 = success, else fail
+@Field static final Map GEN2_FAULTS = [
+    0: "temperature sensor issue",
+    1: "valve adjustment issue",
+    2: "battery too low, replace the batteries",
+    3: "battery too low for a firmware update",
+    4: "battery status abnormal",
+    5: "external temperature sensor connection issue"
+]
 
 // Power Cluster Attributes (0x0001)
 @Field static final int ATTR_BATTERY_VOLTAGE = 0x0020
@@ -148,6 +168,11 @@ metadata {
         attribute "externalSensor", "enum", ["internal", "external", "external_2", "external_3"]
         attribute "temperatureAccuracy", "number"
         attribute "smartTemperatureControl", "enum", ["on", "off"]
+        attribute "faultCode", "string"               // TRV-ZBT
+        attribute "heatPercentageHour", "number"      // TRV-ZBT
+        attribute "valveCalibration", "string"        // TRV-ZBT: success / fail
+        attribute "lowBatteryValveState", "enum", ["close", "open_30"]  // TRV-ZBT
+        attribute "screenDirection", "number"         // TRV-ZBT
         attribute "temporaryMode", "enum", ["boost", "timer"]
         attribute "temporaryModeMinutes", "number"
         attribute "temporaryModeTemperature", "number"
@@ -180,6 +205,9 @@ metadata {
         command "setSmartTemperatureControl", [[name: "enabled*", type: "ENUM", constraints: ["on", "off"], description: "Adaptive valve control (firmware 1.4+)"]]
         command "boost", [[name: "minutes*", type: "NUMBER", description: "Full heat for this many minutes (1-180); firmware 1.4+"]]
         command "timerMode", [[name: "minutes*", type: "NUMBER", description: "Duration in minutes (1-1440)"], [name: "temperature*", type: "NUMBER", description: "Target during the timer (4-35°C)"]]
+        command "calibrateValveTravel"   // TRV-ZBT: re-learn the valve's travel range
+        command "setScreenDirection", [[name: "degrees*", type: "ENUM", constraints: ["0", "90", "180", "270"], description: "TRV-ZBT display rotation"]]
+        command "setLowBatteryValveState", [[name: "state*", type: "ENUM", constraints: ["close", "open_30"], description: "TRV-ZBT: valve position when the battery is too low to run"]]
         command "readFirmware14Attributes"   // accuracy, smart control and temporary mode only (short, so a sleepy valve answers all of it)
         command "readAllAttributes"
         command "readCustomAttributes"
@@ -218,6 +246,12 @@ metadata {
         // Lowercase variation
         fingerprint manufacturer: "sonoff", model: "TRVZB",
                     deviceJoinName: "Sonoff TRVZB"
+
+        // Gen2
+        fingerprint manufacturer: "SONOFF", model: "TRV-ZBT",
+                    deviceJoinName: "Sonoff TRV-ZBT"
+        fingerprint manufacturer: "Sonoff", model: "TRV-ZBT",
+                    deviceJoinName: "Sonoff TRV-ZBT"
     }
 
     preferences {
@@ -483,9 +517,47 @@ private List readAllAttributesCmds() {
     return cmds
 }
 
+/** TRV-ZBT (Gen2) differs from the TRVZB in a few attributes; this is the one switch for it. */
+private boolean isGen2() {
+    return (getDataValue("model") ?: device.getDataValue("model")) == "TRV-ZBT"
+}
+
+private int smartControlAttr() {
+    return isGen2() ? ATTR_SMART_TEMP_CONTROL_GEN2 : ATTR_SMART_TEMP_CONTROL
+}
+
+private List gen2ReadCmds() {
+    def cmds = []
+    [ATTR_FAULT_CODE, ATTR_HEAT_PERCENT_HOUR, ATTR_LOW_BATTERY_VALVE, ATTR_SCREEN_DIRECTION, ATTR_MOTOR_CALIBRATION_STATUS].each {
+        cmds += zigbee.readAttribute(CLUSTER_FC11, it)
+        cmds += "delay 150"
+    }
+    return cmds
+}
+
+def calibrateValveTravel() {
+    if (!isGen2()) { logWarn "Valve travel calibration is a TRV-ZBT feature"; return }
+    logInfo "Starting valve travel calibration"
+    sendZigbeeCommands(zigbee.writeAttribute(CLUSTER_FC11, ATTR_MOTOR_CALIBRATION, 0x10, 0x00) + ["delay 30000"] +
+                       zigbee.readAttribute(CLUSTER_FC11, ATTR_MOTOR_CALIBRATION_STATUS))
+}
+
+def setScreenDirection(degrees) {
+    if (!isGen2()) { logWarn "Screen direction is a TRV-ZBT feature"; return }
+    int v = ["0": 0, "90": 1, "180": 2, "270": 3][degrees as String] ?: 0
+    sendZigbeeCommands(zigbee.writeAttribute(CLUSTER_FC11, ATTR_SCREEN_DIRECTION, 0x20, v) + ["delay 500"] +
+                       zigbee.readAttribute(CLUSTER_FC11, ATTR_SCREEN_DIRECTION))
+}
+
+def setLowBatteryValveState(String state) {
+    if (!isGen2()) { logWarn "Low-battery valve state is a TRV-ZBT feature"; return }
+    sendZigbeeCommands(zigbee.writeAttribute(CLUSTER_FC11, ATTR_LOW_BATTERY_VALVE, 0x20, state == "open_30" ? 30 : 0) + ["delay 500"] +
+                       zigbee.readAttribute(CLUSTER_FC11, ATTR_LOW_BATTERY_VALVE))
+}
+
 def readFirmware14Attributes() {
     def cmds = []
-    [ATTR_TEMP_ACCURACY, ATTR_SMART_TEMP_CONTROL, ATTR_TEMPORARY_MODE, ATTR_TEMPORARY_MODE_TIME].each {
+    [ATTR_TEMP_ACCURACY, smartControlAttr(), ATTR_TEMPORARY_MODE, ATTR_TEMPORARY_MODE_TIME].each {
         cmds += zigbee.readAttribute(CLUSTER_FC11, it)
         cmds += "delay 200"
     }
@@ -524,8 +596,9 @@ private List readCustomAttributesCmds() {
     cmds += "delay 100"
     cmds += zigbee.readAttribute(CLUSTER_FC11, ATTR_TEMP_ACCURACY)
     cmds += "delay 100"
-    cmds += zigbee.readAttribute(CLUSTER_FC11, ATTR_SMART_TEMP_CONTROL)
+    cmds += zigbee.readAttribute(CLUSTER_FC11, smartControlAttr())
     cmds += "delay 100"
+    if (isGen2()) cmds += gen2ReadCmds()
     cmds += zigbee.readAttribute(CLUSTER_FC11, ATTR_TEMPORARY_MODE)
     cmds += "delay 100"
     cmds += zigbee.readAttribute(CLUSTER_FC11, ATTR_TEMPORARY_MODE_TIME)
@@ -567,6 +640,10 @@ def setHeatingSetpoint(BigDecimal temperature) {
 }
 
 def setThermostatMode(String mode) {
+    // Apple Home offers Off/Cool/Heat/Auto on every thermostat whatever the driver reports
+    // (Hubitat's HomeKit bridge ignores supportedThermostatModes). Anything but off means
+    // heat here: "auto" would put a TRVZB on its own weekly schedule and bypass the zones.
+    if (mode != "off") mode = "heat"
     logInfo "Setting thermostat mode to ${mode}"
 
     def modeValue = SYSTEM_MODES_REVERSE[mode]
@@ -592,8 +669,9 @@ def heat() {
 }
 
 def auto() {
-    setThermostatMode("auto")
+    heat()   // no cooling or schedule mode here, see setThermostatMode
 }
+
 
 // Unsupported thermostat methods
 def emergencyHeat() {
@@ -602,8 +680,9 @@ def emergencyHeat() {
 }
 
 def cool() {
-    logWarn "Cool mode not supported on heating-only TRV"
+    heat()   // no cooling or schedule mode here, see setThermostatMode
 }
+
 
 def setSchedule(schedule) {
     logDebug "setSchedule not supported on TRVZB"
@@ -655,6 +734,7 @@ def setFrostProtection(temperature) {
     }
 
     tempC = constrainTemperature(tempC)
+    if (isGen2()) tempC = Math.max(5.0, Math.min(15.0, tempC as double)) as BigDecimal   // TRV-ZBT accepts 5-15°C
     logInfo "Setting frost protection to ${tempC}°C"
 
     def zigbeeTemp = temperatureToZigbee(tempC)
@@ -788,9 +868,15 @@ def setExternalSensor(String sensor) {
 def setSmartTemperatureControl(String enabled) {
     logInfo "Setting smart temperature control ${enabled}"
     def cmds = []
-    cmds += zigbee.writeAttribute(CLUSTER_FC11, ATTR_SMART_TEMP_CONTROL, 0x18, enabled == "on" ? 1 : 0)
+    // on is 0x02 on both models; off is 0x00 on the TRVZB and 0x01 on the TRV-ZBT. This used
+    // to write 1 for "on", which both models read as not-on.
+    if (isGen2()) {
+        cmds += zigbee.writeAttribute(CLUSTER_FC11, ATTR_SMART_TEMP_CONTROL_GEN2, 0x30, enabled == "on" ? 0x02 : 0x01)
+    } else {
+        cmds += zigbee.writeAttribute(CLUSTER_FC11, ATTR_SMART_TEMP_CONTROL, 0x18, enabled == "on" ? 0x02 : 0x00)
+    }
     cmds += "delay 500"
-    cmds += zigbee.readAttribute(CLUSTER_FC11, ATTR_SMART_TEMP_CONTROL)
+    cmds += zigbee.readAttribute(CLUSTER_FC11, smartControlAttr())
     sendZigbeeCommands(cmds)
 }
 
@@ -1097,10 +1183,38 @@ private List handleFC11Cluster(String attrId, String value) {
             logDebug "Temporary mode temperature: ${tmTemp}°C"
             break
 
-        case "6017":  // Smart temperature control
-            def smart = (Integer.parseInt(value, 16) & 0x01) ? "on" : "off"
+        case "6013":  // TRV-ZBT smart temperature control: 0x02 on, 0x01 off
+        case "6017":  // TRVZB smart temperature control: 0x02 on, 0x00 off. (Was read as bit 0,
+                      // which showed the factory value 0x01 as "on".)
+            def smart = (Integer.parseInt(value, 16) == 0x02) ? "on" : "off"
             events << createEvent(name: "smartTemperatureControl", value: smart)
             logDebug "Smart temperature control: ${smart}"
+            break
+
+        case "0010":  // TRV-ZBT fault code: low 16 bits are the fault flags
+            int bits = (Long.parseLong(value, 16) & 0xFFFF) as int
+            def faults = GEN2_FAULTS.findAll { bit, text -> (bits & (1 << bit)) != 0 }.values()
+            def faultText = bits == 0 ? "none" : (faults ? faults.join(", ") : "unknown (0x${value})")
+            events << createEvent(name: "faultCode", value: faultText)
+            if (bits != 0) logWarn "Valve reports: ${faultText}"
+            break
+
+        case "0021":  // TRV-ZBT screen direction
+            events << createEvent(name: "screenDirection", value: [0, 90, 180, 270][Math.min(Integer.parseInt(value, 16), 3)])
+            break
+
+        case "601C":  // TRV-ZBT valve position when the battery is too low
+            events << createEvent(name: "lowBatteryValveState", value: Integer.parseInt(value, 16) == 30 ? "open_30" : "close")
+            break
+
+        case "6033":  // TRV-ZBT heating share of the last hour
+            events << createEvent(name: "heatPercentageHour", value: Integer.parseInt(value, 16), unit: "%")
+            break
+
+        case "6037":  // TRV-ZBT travel calibration result
+            def cal = Integer.parseInt(value, 16) == 0 ? "success" : "fail"
+            events << createEvent(name: "valveCalibration", value: cal)
+            logInfo "Valve travel calibration: ${cal}"
             break
 
         default:

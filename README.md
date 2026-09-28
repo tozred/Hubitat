@@ -26,7 +26,18 @@ A comprehensive driver for the SONOFF TRVZB Thermostatic Radiator Valve.
 - `initialize` exposed as a command, to restore polling and health-check schedules without
   re-saving preferences
 
-**Supported Models:** SONOFF TRVZB
+**Supported Models:** SONOFF TRVZB and TRV-ZBT (Gen2)
+
+**TRV-ZBT (Gen2):** handled by the same driver, which branches on the reported model. The
+Gen2 keeps smart temperature control at `0xFC11/0x6013` (0x02 on, 0x01 off) instead of
+`0x6017`, only accepts frost protection from 5 to 15°C, and adds a fault code, the heating
+share of the last hour, a low-battery valve position, screen rotation and a valve travel
+calibration command.
+
+**Apple Home:** Hubitat's HomeKit bridge always offers Off/Cool/Heat/Auto and a fan button on
+a thermostat, whatever the driver reports. The driver treats Cool and Auto as Heat (on a
+TRVZB, Auto would start the valve's own weekly schedule and bypass the zones), and the fan
+commands do nothing.
 
 ---
 
