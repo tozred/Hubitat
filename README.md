@@ -360,6 +360,27 @@ Uses the Tuya manufacturer-specific attributes on the Window Covering cluster
 
 ---
 
+#### Sonoff MINI-ZBRBS Roller Shutter Switch
+**Location:** `Drivers/Sonoff/sonoff_mini_zbrbs_shutter.groovy`
+
+Driver for the Sonoff MINI-ZBRBS in-wall roller shutter / blind switch. Built from the
+MINI-ZBRBS definition in Koenkk/zigbee-herdsman-converters (`src/devices/sonoff.ts`).
+
+**Features:**
+- Open / close / stop and go to a position (standard Window Covering cluster; the ZCL lift
+  percentage, where 0 is fully open, is converted to Hubitat's 100 = open)
+- Motor travel calibration: automatic, manual (mark fully open / fully closed), or clear
+- Calibration status and motor running state
+- Wall switch trigger mode (edge, pulse, following)
+- Optional direction inversion, default open and close positions
+- Buttons 1/2/3 = open/close/stop for Button Controller, Switch and SwitchLevel for
+  dashboards and HomeKit, health check
+
+**Note:** until it is calibrated the switch can only run fully open or fully closed.
+Run `calibrate` with "start automatic" and let the motor travel end to end.
+
+---
+
 #### Sunricher Zigbee Dimmer
 **Location:** `Drivers/Sunricher/sunricher_dimmer.groovy`
 
@@ -580,7 +601,8 @@ hubitat/
 │   ├── Sonoff/
 │   │   ├── zigbee-sonoff-trvzb.groovy
 │   │   ├── sonoff_snzb04p_contact.groovy
-│   │   └── sonoff_swv_water_valve.groovy
+│   │   ├── sonoff_swv_water_valve.groovy
+│   │   └── sonoff_mini_zbrbs_shutter.groovy
 │   ├── Tuya/
 │   │   ├── tuya_1gang_switch_power.groovy
 │   │   └── tuya_ts130f_curtain_motor.groovy
