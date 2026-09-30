@@ -2,6 +2,7 @@
  *  Sonoff MINI-ZBRBS Zigbee Roller Shutter Switch
  *  Hubitat Elevation device driver
  *
+ *  Version: 1.1.0 - Travel limit: a physical position that counts as fully open
  *  Version: 1.0.0
  *
  *  Zigbee map (endpoint 1), from the MINI-ZBRBS definition in
@@ -26,7 +27,7 @@
 
 import groovy.transform.Field
 
-@Field static final String DRIVER_VERSION = "1.0.0"
+@Field static final String DRIVER_VERSION = "1.1.0"
 
 @Field static final int CLUSTER_WINDOW_COVERING = 0x0102
 @Field static final int CLUSTER_EWELINK = 0xFC11
@@ -77,6 +78,9 @@ metadata {
         input name: "invertDirection", type: "bool", title: "Invert open/close direction",
               description: "Swap open and close, and mirror the position. For a projector screen, where 'open' should lower the screen.",
               defaultValue: false
+        input name: "openLimit", type: "number", title: "Fully open at (% of the motor's travel)",
+              description: "The highest the motor may go. Hubitat, Apple Home and rules treat this as 100 %, and never send it further. 0 stays fully closed.",
+              defaultValue: 100, range: "1..100"
         input name: "defaultOpenPosition", type: "number", title: "Default open position (%)",
               description: "Where 'open' (and button 1) goes", defaultValue: 100, range: "0..100"
         input name: "defaultClosePosition", type: "number", title: "Default close position (%)",
@@ -128,16 +132,24 @@ def refresh() {
 
 // ==================== Position conventions ====================
 
-/** Hubitat position (0 closed .. 100 open, after inversion) from the ZCL lift percentage (0 open). */
+private int limit() { return Math.max(1, Math.min(100, (openLimit != null ? openLimit : 100) as int)) }
+
+/**
+ * Hubitat position (0 closed .. 100 open, after inversion) from the ZCL lift percentage
+ * (0 open). The motor's travel is scaled so that openLimit counts as 100 %; anything the
+ * motor reports above the limit (the wall switch can still take it there) reads as 100.
+ */
 private int positionFromLift(int lift) {
-    int pos = 100 - Math.max(0, Math.min(100, lift))
+    int motor = 100 - Math.max(0, Math.min(100, lift))       // 0 closed .. 100 motor end stop
+    int pos = Math.min(100, Math.round(motor * 100.0 / limit()) as int)
     return invertDirection ? 100 - pos : pos
 }
 
 private int liftFromPosition(int pos) {
     pos = Math.max(0, Math.min(100, pos))
     if (invertDirection) pos = 100 - pos
-    return 100 - pos
+    int motor = Math.round(pos * limit() / 100.0) as int      // never beyond the limit
+    return 100 - motor
 }
 
 // ==================== Commands ====================
@@ -158,7 +170,8 @@ def setPosition(position) {
     }
     // Fully open / fully closed use the plain commands, which run the motor to its end stop
     int lift = liftFromPosition(target)
-    if (lift == 0) return zigbee.command(CLUSTER_WINDOW_COVERING, 0x00)
+    // The plain "up" command runs to the motor's end stop, so only use it when there is no limit
+    if (lift == 0 && limit() == 100) return zigbee.command(CLUSTER_WINDOW_COVERING, 0x00)
     if (lift == 100) return zigbee.command(CLUSTER_WINDOW_COVERING, 0x01)
     return zigbee.command(CLUSTER_WINDOW_COVERING, 0x05, zigbee.convertToHexString(lift, 2))
 }
@@ -174,10 +187,9 @@ def stopPositionChange() { stop() }
 def stopLevelChange()    { stop() }
 
 def startPositionChange(String direction) {
-    boolean up = (direction == "open")
-    if (invertDirection) up = !up
-    sendEvent(name: "moving", value: direction == "open" ? "opening" : "closing")
-    return zigbee.command(CLUSTER_WINDOW_COVERING, up ? 0x00 : 0x01)
+    // Go to the end of the allowed range rather than "run until stopped", so a missed
+    // stop can never take it past the open limit
+    return setPosition(direction == "open" ? 100 : 0)
 }
 
 def startLevelChange(String direction) { startPositionChange(direction == "up" ? "open" : "close") }
