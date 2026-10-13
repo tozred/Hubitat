@@ -319,6 +319,32 @@ of the real mains voltage, check that preference before anything else.
 
 ---
 
+#### HOBEIAN ZG-303Z Soil Moisture Sensor
+**Location:** `Drivers/Tuya/hobeian_zg303z_soil_sensor.groovy`
+
+Driver for the unbranded Tuya-based soil sensor that identifies as `HOBEIAN` / `ZG-303Z`
+(also sold as AOYAN AY-303Z and COOLO CS-201Z). Datapoint map from the ZG-303Z definition
+in Koenkk/zigbee-herdsman-converters (`src/devices/hobeian.ts`), checked against a real unit.
+
+**Features:**
+- Soil moisture (%), air temperature and air humidity, battery
+- Dry warning as a standard `WaterSensor` (`dry` below the threshold), so any notification
+  or rule app can use it
+- Settable: dry threshold, soil and air sampling intervals, and calibration offsets for soil
+  moisture, temperature and humidity
+- Health check
+
+**Notes:**
+- The sensor sleeps nearly all the time. Setting changes are queued, shown in
+  `pendingSettings`, sent the moment it next reports, and cleared when the sensor confirms.
+- It only sends a value when it changes, so the driver asks for the full set after pairing.
+- Out of the box it samples every 30 s. Soil does not change that fast: 600 s for soil and
+  300 s for air is kinder to the battery.
+- It also mirrors temperature on cluster 0x0402 and **soil moisture** on the humidity cluster
+  0x0405. The driver ignores both copies, so soil moisture is never shown as air humidity.
+
+---
+
 #### Tuya TS130F Curtain/Blind Motor
 **Location:** `Drivers/Tuya/tuya_ts130f_curtain_motor.groovy`
 
@@ -605,7 +631,8 @@ hubitat/
 │   │   └── sonoff_mini_zbrbs_shutter.groovy
 │   ├── Tuya/
 │   │   ├── tuya_1gang_switch_power.groovy
-│   │   └── tuya_ts130f_curtain_motor.groovy
+│   │   ├── tuya_ts130f_curtain_motor.groovy
+│   │   └── hobeian_zg303z_soil_sensor.groovy
 │   ├── Sunricher/
 │   │   └── sunricher_dimmer.groovy
 │   ├── Nuki/
