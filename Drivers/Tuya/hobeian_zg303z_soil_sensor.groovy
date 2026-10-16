@@ -2,6 +2,8 @@
  *  HOBEIAN ZG-303Z Soil Moisture Sensor (also sold unbranded, and as AOYAN AY-303Z / COOLO CS-201Z)
  *  Hubitat Elevation device driver
  *
+ *  Version: 1.1.0 - Dry warning is a soilStatus (moist/dry), no longer a leak sensor: moist soil
+ *                   showed as a red water leak on dashboards
  *  Version: 1.0.2 - Fix sending settings (hex formatting threw)
  *  Version: 1.0.1 - Ask for all values on wake while any is still missing
  *  Version: 1.0.0
@@ -32,7 +34,7 @@
 
 import groovy.transform.Field
 
-@Field static final String DRIVER_VERSION = "1.0.2"
+@Field static final String DRIVER_VERSION = "1.1.0"
 @Field static final int CLUSTER_TUYA = 0xEF00
 
 // datapoint: [setting name, Tuya type (2 = 4-byte value), scale]
@@ -51,11 +53,13 @@ metadata {
         capability "Battery"
         capability "TemperatureMeasurement"
         capability "RelativeHumidityMeasurement"
-        capability "WaterSensor"          // water: "dry" when the soil is below the warning threshold, else "wet"
         capability "Configuration"
         capability "HealthCheck"
 
         attribute "soilMoisture", "number"
+        // Not the WaterSensor capability: everywhere in Hubitat and Apple Home its "wet" means
+        // a water leak (red alarm), which is exactly backwards for a plant.
+        attribute "soilStatus", "enum", ["moist", "dry"]
         attribute "soilWarning", "number"
         attribute "temperatureSampling", "number"
         attribute "soilSampling", "number"
@@ -92,6 +96,12 @@ def installed() {
 
 def updated() {
     log.info "${device.displayName}: settings updated"
+    // 1.0.x reported the dry warning as a leak sensor ("water"); carry it over and drop it
+    def oldWater = device.currentValue("water")
+    if (oldWater != null) {
+        if (device.currentValue("soilStatus") == null) sendEvent(name: "soilStatus", value: oldWater == "dry" ? "dry" : "moist")
+        device.deleteCurrentState("water")
+    }
     if (logEnable) runIn(86400, "logsOff")   // debug logging switches itself off after 24 h
     sendEvent(name: "driverVersion", value: DRIVER_VERSION)
     runEvery1Hour("healthCheck")
@@ -232,8 +242,7 @@ private void handleDatapoint(int dp, int v) {
             event("battery", v, "%", "battery is ${v}%")
             break
         case 106:
-            String water = v ? "dry" : "wet"
-            event("water", water, null, "soil is ${v ? 'dry (below the warning threshold)' : 'moist enough'}")
+            event("soilStatus", v ? "dry" : "moist", null, "soil is ${v ? 'dry (below the warning threshold)' : 'moist enough'}")
             break
         case 110:
             event("soilWarning", v, "%", null); confirmSetting("soilWarning", v as BigDecimal)

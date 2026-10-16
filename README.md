@@ -328,8 +328,8 @@ in Koenkk/zigbee-herdsman-converters (`src/devices/hobeian.ts`), checked against
 
 **Features:**
 - Soil moisture (%), air temperature and air humidity, battery
-- Dry warning as a standard `WaterSensor` (`dry` below the threshold), so any notification
-  or rule app can use it
+- Dry warning as `soilStatus` (`moist` / `dry`). Deliberately not the `WaterSensor`
+  capability: there `wet` means a water leak, so moist soil showed as a red leak alarm
 - Settable: dry threshold, soil and air sampling intervals, and calibration offsets for soil
   moisture, temperature and humidity
 - Health check
