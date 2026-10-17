@@ -14,7 +14,8 @@
 
 import groovy.transform.Field
 
-@Field static final String DRIVER_VERSION = "1.1.3"
+@Field static final String DRIVER_VERSION = "1.1.4"
+@Field static final BigDecimal COOLING_PLACEHOLDER = 35.0
 
 metadata {
     definition(
@@ -104,12 +105,18 @@ def updated() {
 /**
  * HomeKit reads these as JSON. A Groovy list was stored as "[off, heat, auto]", which the
  * HomeKit bridge cannot parse, so the thermostat showed up read-only; and "auto" in Apple
- * Home means a heat/cool range, which a radiator does not have. No fan modes: radiators
- * have no fan.
+ * Home means a heat/cool range, which a radiator does not have.
+ * The Thermostat capability makes the HomeKit bridge publish a cooling threshold and a fan
+ * mode too. Left empty they are invalid HomeKit values, and Apple Home then refused to save
+ * edits such as moving the accessory to another room. So both get a fixed, valid value:
+ * cooling threshold at HomeKit's maximum (35 °C, never below the heating setpoint) and the
+ * fan on "auto".
  */
 private void sendSupportedModes() {
     sendEvent(name: "supportedThermostatModes", value: groovy.json.JsonOutput.toJson(["off", "heat"]))
-    sendEvent(name: "supportedThermostatFanModes", value: groovy.json.JsonOutput.toJson([]))
+    sendEvent(name: "supportedThermostatFanModes", value: groovy.json.JsonOutput.toJson(["auto"]))
+    sendEvent(name: "thermostatFanMode", value: "auto")
+    sendEvent(name: "coolingSetpoint", value: COOLING_PLACEHOLDER, unit: "°C")
 }
 
 def initialize() {
@@ -289,6 +296,7 @@ def setChildLockStatus(String enabled) {
 
 def setCoolingSetpoint(temperature) {
     logWarn "Cooling setpoint not supported (heating-only system)"
+    sendEvent(name: "coolingSetpoint", value: COOLING_PLACEHOLDER, unit: "°C")
 }
 
 def cool() {
