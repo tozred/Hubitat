@@ -22,7 +22,11 @@
  *  commands from devices routed through it. This is a firmware issue, not a
  *  driver issue. See: https://github.com/Koenkk/zigbee2mqtt/issues/13903
  *
- *  Version: 1.0.0
+ *  Version: 1.1.0
+ *  1.1.0: the plug (firmware 45) stopped reporting on/off changes on its own, so
+ *         Apple Home timed out and kept a stale state. Every on/off now reads the
+ *         state back, the command's default response sets the state, and the
+ *         reporting setup is re-applied once after the driver update.
  *
  *  References:
  *  - https://www.zigbee2mqtt.io/devices/SP-EUC01.html
@@ -34,7 +38,8 @@ import groovy.transform.Field
 
 // ==================== Constants ====================
 
-@Field static final String DRIVER_VERSION = "1.0.2"
+@Field static final String DRIVER_VERSION = "1.1.0"
+@Field static final int REPORTING_VERSION = 2
 
 // Cluster IDs
 @Field static final int CLUSTER_BASIC = 0x0000
@@ -163,6 +168,13 @@ def updated() {
     scheduleHealthCheck()
 
     sendEvent(name: "driverVersion", value: DRIVER_VERSION)
+
+    if ((state.reportingVersion ?: 0) < REPORTING_VERSION) runIn(3, reconfigureReporting)
+}
+
+def reconfigureReporting() {
+    sendZigbeeCommands(configure())
+    state.reportingVersion = REPORTING_VERSION
 }
 
 def initialize() {
@@ -356,14 +368,15 @@ def ping() {
 
 // ==================== Switch Commands ====================
 
+// Firmware 45 no longer reports on/off changes by itself, so read the state back
 def on() {
     logInfo "Turning on"
-    return zigbee.on()
+    return zigbee.on() + ["delay 1500"] + zigbee.readAttribute(CLUSTER_ONOFF, 0x0000)
 }
 
 def off() {
     logInfo "Turning off"
-    return zigbee.off()
+    return zigbee.off() + ["delay 1500"] + zigbee.readAttribute(CLUSTER_ONOFF, 0x0000)
 }
 
 // ==================== Custom Commands ====================
@@ -568,24 +581,19 @@ private List handleElectricalCluster(String attrId, String value) {
 private List handleCatchall(Map descMap) {
     def events = []
 
-    // Handle on/off commands (these can come from routing issues!)
-    if (descMap.clusterId == "0006") {
-        if (descMap.command in ["00", "01"]) {
-            // Command 00 = Off, 01 = On
-            // Log this but be aware it might be from routing issues
-            logDebug "Received On/Off command: ${descMap.command}"
-
-            // Only process if it looks like a direct response
-            if (descMap.isClusterSpecific == false || descMap.data?.size() == 0) {
-                // This might be a report, handle it
-                def switchState = descMap.command == "01" ? "on" : "off"
-                events << createEvent(name: "switch", value: switchState)
-                logInfo "Switch (catchall): ${switchState}"
-            } else {
-                // This might be from another device routed through this plug
-                logWarn "Received routed command - possible firmware routing issue"
-            }
+    // Default Response (global command 0B) to our On/Off command: data = [command, status]
+    if (descMap.clusterId == "0006" && descMap.command == "0B" && descMap.data?.size() >= 2) {
+        if (descMap.data[1] == "00" && descMap.data[0] in ["00", "01"]) {
+            def switchState = descMap.data[0] == "01" ? "on" : "off"
+            events << createEvent(name: "switch", value: switchState)
+            logInfo "Switch (confirmed): ${switchState}"
+        } else {
+            logWarn "On/Off command ${descMap.data[0]} failed with status ${descMap.data[1]}"
         }
+    }
+    // Cluster-specific On/Off commands are other devices' traffic routed through this plug
+    else if (descMap.clusterId == "0006" && descMap.isClusterSpecific) {
+        logDebug "Ignoring routed On/Off command ${descMap.command}"
     }
 
     return events
