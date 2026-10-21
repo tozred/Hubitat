@@ -15,7 +15,7 @@
 
 import groovy.transform.Field
 
-@Field static final String APP_VERSION = "1.4.1"
+@Field static final String APP_VERSION = "1.4.2"
 
 // Battery TRVs apply a setpoint on their next wake, so give them a wake cycle before
 // checking, then resend to any valve that did not take it.
@@ -557,9 +557,22 @@ private boolean isTrvWindowAction(dev, BigDecimal newSetpoint) {
 def trvModeHandler(evt) {
     logDebug "${evt.device.displayName} mode: ${evt.value}"
     if (now() < (atomicState.ownModeUntil ?: 0)) return   // we switched it
+    // "auto" runs the valve's own weekly schedule and bypasses this zone: put it back on heat
+    if (evt.value == "auto") {
+        logWarn "${evt.device.displayName} switched itself to its own schedule (auto) - back to heat"
+        atomicState.ownModeUntil = now() + 30000
+        evt.device.heat()
+        if (!state.windowOpen) runIn(5, reapplySetpoint)
+        return
+    }
     if (evt.value == "heat" && state.windowOpen && state.windowSource == TRV_WINDOW_SOURCE) {
         handleWindowState(false, TRV_WINDOW_SOURCE)
     }
+}
+
+def reapplySetpoint() {
+    def target = state.isOverridden ? state.overrideSetpoint : state.lastAppliedSetpoint
+    if (target != null) setRoomTemperature(target as BigDecimal)
 }
 
 def trvWindowTimeout() {
