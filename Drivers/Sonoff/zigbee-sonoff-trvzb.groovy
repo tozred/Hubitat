@@ -36,7 +36,7 @@ import groovy.transform.Field
 
 // ==================== Constants ====================
 
-@Field static final String DRIVER_VERSION = "2.4.2"
+@Field static final String DRIVER_VERSION = "2.4.3"
 @Field static final BigDecimal COOLING_PLACEHOLDER = 35.0
 // Manufacturer code - can be string "0x1286" or integer 0x1286
 // Using string format for broader compatibility
@@ -328,6 +328,7 @@ private void sendSupportedModes() {
 
 def initialize() {
     sendSupportedModes()
+    if (!isGen2()) device.deleteCurrentState("faultCode")   // stale false fault from before 2.4.3
     sendEvent(name: "driverVersion", value: DRIVER_VERSION)
     sendEvent(name: "healthStatus", value: "online")
 
@@ -1206,6 +1207,7 @@ private List handleFC11Cluster(String attrId, String value) {
             break
 
         case "0010":  // TRV-ZBT fault code: low 16 bits are the fault flags
+            if (!isGen2()) break   // the TRVZB uses 0x0010 for something else: decoding it showed a false sensor fault
             int bits = (Long.parseLong(value, 16) & 0xFFFF) as int
             def faults = GEN2_FAULTS.findAll { bit, text -> (bits & (1 << bit)) != 0 }.values()
             def faultText = bits == 0 ? "none" : (faults ? faults.join(", ") : "unknown (0x${value})")
