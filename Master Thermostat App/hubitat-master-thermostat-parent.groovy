@@ -19,7 +19,7 @@
 
 import groovy.transform.Field
 
-@Field static final String APP_VERSION = "1.1.0"
+@Field static final String APP_VERSION = "1.1.1"
 
 definition(
     name: "Master Thermostat Controller",
@@ -238,26 +238,24 @@ def initializeSchedule() {
     logDebug "Weekend slots: ${weekendSlots}"
 
     // Schedule weekday slots
-    weekdaySlots.each { slot ->
-        if (slot.time && slot.temp != null) {
-            def timeParts = parseTimeString(slot.time)
-            if (timeParts) {
-                def cronExpr = "0 ${timeParts.minute} ${timeParts.hour} ? * MON-FRI"
-                logDebug "Scheduling weekday: ${cronExpr} -> ${slot.temp}°C (${slot.name})"
-                schedule(cronExpr, "scheduleHandler", [data: [temp: slot.temp, name: slot.name ?: "Weekday"]])
-            }
+    // Hubitat keeps one job per handler name, so every slot needs its own handler;
+    // with a shared handler each schedule() replaced the previous one.
+    weekdaySlots.eachWithIndex { slot, i ->
+        def timeParts = parseTimeString(slot.time)
+        if (timeParts) {
+            def cronExpr = "0 ${timeParts.minute} ${timeParts.hour} ? * MON-FRI"
+            logDebug "Scheduling weekday: ${cronExpr} -> ${slot.temp}°C (${slot.name})"
+            schedule(cronExpr, "weekdaySlot${i + 1}")
         }
     }
 
     // Schedule weekend slots
-    weekendSlots.each { slot ->
-        if (slot.time && slot.temp != null) {
-            def timeParts = parseTimeString(slot.time)
-            if (timeParts) {
-                def cronExpr = "0 ${timeParts.minute} ${timeParts.hour} ? * SAT,SUN"
-                logDebug "Scheduling weekend: ${cronExpr} -> ${slot.temp}°C (${slot.name})"
-                schedule(cronExpr, "scheduleHandler", [data: [temp: slot.temp, name: slot.name ?: "Weekend"]])
-            }
+    weekendSlots.eachWithIndex { slot, i ->
+        def timeParts = parseTimeString(slot.time)
+        if (timeParts) {
+            def cronExpr = "0 ${timeParts.minute} ${timeParts.hour} ? * SAT,SUN"
+            logDebug "Scheduling weekend: ${cronExpr} -> ${slot.temp}°C (${slot.name})"
+            schedule(cronExpr, "weekendSlot${i + 1}")
         }
     }
 
@@ -308,6 +306,27 @@ def parseTimeString(String timeStr) {
         logWarn "Could not parse time: ${timeStr}"
         return null
     }
+}
+
+// One handler per slot (index into the time-sorted slot lists), read at run time so
+// they always use the current settings
+def weekdaySlot1() { runSlot(getWeekdaySlots(), 0, "Weekday") }
+def weekdaySlot2() { runSlot(getWeekdaySlots(), 1, "Weekday") }
+def weekdaySlot3() { runSlot(getWeekdaySlots(), 2, "Weekday") }
+def weekdaySlot4() { runSlot(getWeekdaySlots(), 3, "Weekday") }
+def weekdaySlot5() { runSlot(getWeekdaySlots(), 4, "Weekday") }
+def weekdaySlot6() { runSlot(getWeekdaySlots(), 5, "Weekday") }
+def weekendSlot1() { runSlot(getWeekendSlots(), 0, "Weekend") }
+def weekendSlot2() { runSlot(getWeekendSlots(), 1, "Weekend") }
+def weekendSlot3() { runSlot(getWeekendSlots(), 2, "Weekend") }
+def weekendSlot4() { runSlot(getWeekendSlots(), 3, "Weekend") }
+def weekendSlot5() { runSlot(getWeekendSlots(), 4, "Weekend") }
+def weekendSlot6() { runSlot(getWeekendSlots(), 5, "Weekend") }
+
+private void runSlot(List slots, int index, String fallbackName) {
+    if (index >= slots.size()) return
+    def slot = slots[index]
+    scheduleHandler([temp: slot.temp, name: slot.name ?: fallbackName])
 }
 
 def scheduleHandler(data) {
